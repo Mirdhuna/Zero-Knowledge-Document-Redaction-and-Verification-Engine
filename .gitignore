@@ -1,3 +1,10 @@
+bin/
+*.class
+*.private
+*.key
+*.sig
+*.zksig
+.env
 out/
 *.class
 *.log
