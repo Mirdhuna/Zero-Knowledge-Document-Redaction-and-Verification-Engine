@@ -1,0 +1,20 @@
+CONFIDENTIAL SERVICE AGREEMENT
+
+This Agreement is entered into between Acme Corporation and Alice Walker.
+
+Contact Information:
+Primary Contact: Alice Walker
+Email Address: alice.walker@secure-enterprise.org
+Emergency Phone: (415) 555-2671
+Direct Line: 415-555-8899
+
+Billing & Identity Verification:
+Social Security Number: 123-45-6789
+Corporate Billing Card: 4111-2222-3333-4444
+Backup Corporate Card: 5500-0000-0000-9999
+
+Production Server Credentials:
+Master API Key: sec_token_1234567890abcdef12345678
+Internal Gateway IP: 192.168.1.100
+
+All parties agree to preserve confidentiality and redact all sensitive identifiers before distribution.
