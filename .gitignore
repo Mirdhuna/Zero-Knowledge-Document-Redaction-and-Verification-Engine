@@ -1,0 +1,7 @@
+bin/
+*.class
+*.private
+*.key
+*.sig
+*.zksig
+.env
