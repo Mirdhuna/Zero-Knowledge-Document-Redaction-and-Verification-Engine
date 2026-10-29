@@ -1,6 +1,5 @@
 package com.zeroknowledge.frontend;
 
-import com.zeroknowledge.backend.BackendContext;
 import com.zeroknowledge.model.OperationRecord;
 
 import javax.swing.*;
@@ -8,6 +7,8 @@ import javax.swing.border.EmptyBorder;
 import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.DefaultTableModel;
 import java.awt.*;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.function.Consumer;
 
@@ -21,16 +22,17 @@ public class AuditPanel extends JPanel {
     private final BackendContext context;
     private final Consumer<String> navigationConsumer;
 
-    // Filters
     private JComboBox<String> operationFilterCombo;
     private JComboBox<String> statusFilterCombo;
     private JLabel totalRecordsLabel;
 
-    // Table
     private JTable auditTable;
     private DefaultTableModel auditModel;
     private JScrollPane tableScrollPane;
     private JPanel emptyStatePanel;
+
+    private static final DateTimeFormatter TIME_FORMATTER =
+            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss").withZone(ZoneId.systemDefault());
 
     public AuditPanel(BackendContext context, Consumer<String> navigationConsumer) {
         this.context = context;
@@ -97,7 +99,17 @@ public class AuditPanel extends JPanel {
         JLabel opLbl = new JLabel("Operation:");
         opLbl.setFont(ThemeManager.FONT_SMALL_BOLD);
         operationFilterCombo = new JComboBox<>(new String[]{
-                "All Operations", "SCAN", "REDACT", "SIGN", "VERIFY", "KEY_GENERATION", "KEY_EXPORT", "KEY_IMPORT"
+                "All Operations",
+                "DOCUMENT_SCAN",
+                "DOCUMENT_REDACT",
+                "HASH_CALCULATION",
+                "KEY_GENERATION",
+                "KEY_LOAD",
+                "KEY_EXPORT",
+                "DOCUMENT_SIGN",
+                "SIGNATURE_VERIFY",
+                "ACCESS_CHECK",
+                "UNSUPPORTED_PDF_OPERATION"
         });
         operationFilterCombo.setFont(ThemeManager.FONT_SMALL);
         operationFilterCombo.addActionListener(e -> refreshAuditTable());
@@ -105,7 +117,7 @@ public class AuditPanel extends JPanel {
         JLabel stLbl = new JLabel("Status:");
         stLbl.setFont(ThemeManager.FONT_SMALL_BOLD);
         statusFilterCombo = new JComboBox<>(new String[]{
-                "All Statuses", "SUCCESS", "FAILED", "CANCELLED", "WARNING"
+                "All Statuses", "SUCCESS", "FAILED"
         });
         statusFilterCombo.setFont(ThemeManager.FONT_SMALL);
         statusFilterCombo.addActionListener(e -> refreshAuditTable());
@@ -142,12 +154,11 @@ public class AuditPanel extends JPanel {
         auditTable = new JTable(auditModel);
         ThemeManager.styleTable(auditTable);
         auditTable.getColumnModel().getColumn(0).setPreferredWidth(140);
-        auditTable.getColumnModel().getColumn(1).setPreferredWidth(110);
+        auditTable.getColumnModel().getColumn(1).setPreferredWidth(130);
         auditTable.getColumnModel().getColumn(2).setPreferredWidth(180);
         auditTable.getColumnModel().getColumn(3).setPreferredWidth(90);
         auditTable.getColumnModel().getColumn(4).setPreferredWidth(340);
 
-        // Custom status cell renderer to highlight SUCCESS / FAILED cleanly
         auditTable.getColumnModel().getColumn(3).setCellRenderer(new DefaultTableCellRenderer() {
             @Override
             public Component getTableCellRendererComponent(JTable table, Object value, boolean isSelected,
@@ -158,14 +169,8 @@ public class AuditPanel extends JPanel {
                     if ("SUCCESS".equalsIgnoreCase(str)) {
                         c.setForeground(ThemeManager.SUCCESS_GREEN);
                         setFont(ThemeManager.FONT_SMALL_BOLD);
-                    } else if ("FAILED".equalsIgnoreCase(str)) {
-                        c.setForeground(ThemeManager.DANGER_RED);
-                        setFont(ThemeManager.FONT_SMALL_BOLD);
-                    } else if ("CANCELLED".equalsIgnoreCase(str)) {
-                        c.setForeground(ThemeManager.TEXT_MUTED);
-                        setFont(ThemeManager.FONT_SMALL);
                     } else {
-                        c.setForeground(ThemeManager.WARNING_AMBER);
+                        c.setForeground(ThemeManager.DANGER_RED);
                         setFont(ThemeManager.FONT_SMALL_BOLD);
                     }
                 }
@@ -193,47 +198,47 @@ public class AuditPanel extends JPanel {
         String opSel = (String) operationFilterCombo.getSelectedItem();
         String stSel = (String) statusFilterCombo.getSelectedItem();
 
-        OperationRecord.OperationType opType = null;
-        if (opSel != null && !opSel.equals("All Operations")) {
-            opType = OperationRecord.OperationType.valueOf(opSel);
-        }
-
-        OperationRecord.Status status = null;
-        if (stSel != null && !stSel.equals("All Statuses")) {
-            status = OperationRecord.Status.valueOf(stSel);
-        }
-
-        List<OperationRecord> records = context.getAuditService().filterRecords(opType, status);
+        List<OperationRecord> records = context.getAuditService().getRecords();
         auditModel.setRowCount(0);
 
-        if (records.isEmpty()) {
-            tableScrollPane.setViewportView(emptyStatePanel);
-        } else {
-            tableScrollPane.setViewportView(auditTable);
-            for (OperationRecord r : records) {
+        int displayedCount = 0;
+        for (OperationRecord r : records) {
+            boolean matchOp = (opSel == null || opSel.equals("All Operations") || r.getOperationType().name().equals(opSel));
+            boolean matchStatus = (stSel == null || stSel.equals("All Statuses") ||
+                    (stSel.equals("SUCCESS") && r.isSuccess()) ||
+                    (stSel.equals("FAILED") && !r.isSuccess()));
+
+            if (matchOp && matchStatus) {
                 auditModel.addRow(new Object[]{
-                        r.getFormattedTimestamp(),
+                        TIME_FORMATTER.format(r.getTimestamp()),
                         r.getOperationType().name(),
                         r.getDocumentIdentifier(),
-                        r.getStatus().name(),
+                        r.isSuccess() ? "SUCCESS" : "FAILED",
                         r.getDetails()
                 });
+                displayedCount++;
             }
         }
 
-        totalRecordsLabel.setText(records.size() + " record(s) found");
+        if (displayedCount == 0) {
+            tableScrollPane.setViewportView(emptyStatePanel);
+        } else {
+            tableScrollPane.setViewportView(auditTable);
+        }
+
+        totalRecordsLabel.setText(displayedCount + " record(s) displayed");
     }
 
     private void handleClearLog() {
         boolean confirm = DialogManager.showConfirmation(
                 this,
                 "Confirm Clear Audit Log",
-                "Are you sure you want to permanently clear the local audit log history?\n" +
+                "Are you sure you want to clear the local audit log history?\n" +
                         "This will reset all recorded activity metrics.",
                 "Clear History"
         );
         if (confirm) {
-            context.getAuditService().clearHistory();
+            context.getAuditService().clearMemoryRecords();
             refreshAuditTable();
             DialogManager.showInfo(this, "Audit Cleared", "The local audit history has been cleared.");
         }

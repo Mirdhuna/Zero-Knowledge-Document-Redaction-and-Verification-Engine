@@ -1,35 +1,30 @@
 package com.zeroknowledge.frontend;
 
-import com.zeroknowledge.backend.BackendContext;
-import com.zeroknowledge.model.KeyInfo;
-import com.zeroknowledge.model.OperationRecord;
 import com.zeroknowledge.model.VerificationResult;
 
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import java.awt.*;
 import java.io.File;
+import java.nio.file.Path;
 import java.security.PublicKey;
-import java.util.List;
+import java.util.Map;
 import java.util.function.Consumer;
 
 /**
  * Verification Workspace:
- * Verifies document authenticity and integrity using detached RSA digital signatures
- * and X.509 public keys.
+ * Verifies document authenticity and integrity using detached RSA digital signatures (.zksig)
+ * and trusted X.509 public keys.
  */
 public class VerificationPanel extends JPanel {
 
     private final BackendContext context;
     private final Consumer<String> navigationConsumer;
 
-    // Files and Keys
     private File documentFile;
     private File signatureFile;
     private PublicKey activePublicKey;
-    private String activeKeyAlias;
 
-    // UI Fields
     private JTextField docPathField;
     private JTextField sigPathField;
     private JComboBox<String> keySourceComboBox;
@@ -44,8 +39,8 @@ public class VerificationPanel extends JPanel {
     private JLabel statusHeaderLabel;
     private JLabel explanationLabel;
     private JLabel docHashLabel;
-    private JLabel keyFingerprintLabel;
-    private JLabel durationLabel;
+    private JLabel keyIdLabel;
+    private JLabel technicalDetailsLabel;
 
     public VerificationPanel(BackendContext context, Consumer<String> navigationConsumer) {
         this.context = context;
@@ -98,7 +93,7 @@ public class VerificationPanel extends JPanel {
         title.setForeground(ThemeManager.TEXT_PRIMARY);
 
         JLabel desc = new JLabel(
-                "Cryptographically verify document integrity and detached digital signatures against known public keys."
+                "Cryptographically verify document integrity and detached digital signatures (.zksig) against trusted public keys."
         );
         desc.setFont(ThemeManager.FONT_REGULAR);
         desc.setForeground(ThemeManager.TEXT_SECONDARY);
@@ -131,7 +126,7 @@ public class VerificationPanel extends JPanel {
 
         // 1. Document file
         gbc.gridx = 0; gbc.gridy = 0; gbc.weightx = 0.0;
-        JLabel docLbl = new JLabel("Document File:");
+        JLabel docLbl = new JLabel("Target Document:");
         docLbl.setFont(ThemeManager.FONT_SMALL_BOLD);
         form.add(docLbl, gbc);
 
@@ -147,7 +142,7 @@ public class VerificationPanel extends JPanel {
 
         // 2. Detached signature file
         gbc.gridx = 0; gbc.gridy = 1; gbc.weightx = 0.0;
-        JLabel sigLbl = new JLabel("Detached Signature (.sig):");
+        JLabel sigLbl = new JLabel("Detached Signature (.zksig):");
         sigLbl.setFont(ThemeManager.FONT_SMALL_BOLD);
         form.add(sigLbl, gbc);
 
@@ -163,7 +158,7 @@ public class VerificationPanel extends JPanel {
 
         // 3. Public Key selection
         gbc.gridx = 0; gbc.gridy = 2; gbc.weightx = 0.0;
-        JLabel keyLbl = new JLabel("Public Key Source:");
+        JLabel keyLbl = new JLabel("Trusted Public Key:");
         keyLbl.setFont(ThemeManager.FONT_SMALL_BOLD);
         form.add(keyLbl, gbc);
 
@@ -192,14 +187,13 @@ public class VerificationPanel extends JPanel {
         form.add(customKeyPathField, gbc);
 
         gbc.gridx = 2; gbc.gridy = 3; gbc.weightx = 0.0;
-        browseCustomKeyBtn = ThemeManager.createSecondaryButton("Browse Key PEM...");
+        browseCustomKeyBtn = ThemeManager.createSecondaryButton("Browse PEM...");
         browseCustomKeyBtn.setEnabled(false);
         browseCustomKeyBtn.addActionListener(e -> handleBrowseCustomKey());
         form.add(browseCustomKeyBtn, gbc);
 
         card.add(form, BorderLayout.CENTER);
 
-        // Bottom verify button and progress
         JPanel bottomRow = new JPanel(new BorderLayout(10, 0));
         bottomRow.setOpaque(false);
 
@@ -237,7 +231,7 @@ public class VerificationPanel extends JPanel {
         details.setLayout(new BoxLayout(details, BoxLayout.Y_AXIS));
         details.setOpaque(false);
 
-        statusHeaderLabel = new JLabel("Outcome: -");
+        statusHeaderLabel = new JLabel("Status: -");
         statusHeaderLabel.setFont(new Font("SansSerif", Font.BOLD, 15));
         details.add(statusHeaderLabel);
         details.add(Box.createVerticalStrut(8));
@@ -253,16 +247,16 @@ public class VerificationPanel extends JPanel {
         details.add(docHashLabel);
         details.add(Box.createVerticalStrut(4));
 
-        keyFingerprintLabel = new JLabel("Public Key SHA-256 Fingerprint: -");
-        keyFingerprintLabel.setFont(ThemeManager.FONT_MONO);
-        keyFingerprintLabel.setForeground(ThemeManager.TEXT_SECONDARY);
-        details.add(keyFingerprintLabel);
+        keyIdLabel = new JLabel("Public Key ID: -");
+        keyIdLabel.setFont(ThemeManager.FONT_MONO);
+        keyIdLabel.setForeground(ThemeManager.TEXT_SECONDARY);
+        details.add(keyIdLabel);
         details.add(Box.createVerticalStrut(4));
 
-        durationLabel = new JLabel("Verification Time: -");
-        durationLabel.setFont(ThemeManager.FONT_SMALL);
-        durationLabel.setForeground(ThemeManager.TEXT_MUTED);
-        details.add(durationLabel);
+        technicalDetailsLabel = new JLabel("Technical Notes: -");
+        technicalDetailsLabel.setFont(ThemeManager.FONT_SMALL);
+        technicalDetailsLabel.setForeground(ThemeManager.TEXT_MUTED);
+        details.add(technicalDetailsLabel);
 
         card.add(details, BorderLayout.CENTER);
         return card;
@@ -270,23 +264,30 @@ public class VerificationPanel extends JPanel {
 
     private void handleBrowseDocument() {
         JFileChooser chooser = new JFileChooser();
-        chooser.setDialogTitle("Select Document to Verify");
+        chooser.setDialogTitle("Select Target Document to Verify");
         if (chooser.showOpenDialog(this) == JFileChooser.APPROVE_OPTION) {
             documentFile = chooser.getSelectedFile();
             docPathField.setText(documentFile.getAbsolutePath());
 
-            // Automatically check if adjacent .sig file exists
-            File candidateSig = new File(documentFile.getAbsolutePath() + ".sig");
-            if (candidateSig.exists()) {
-                signatureFile = candidateSig;
-                sigPathField.setText(candidateSig.getAbsolutePath());
+            // Automatically check for standard .zksig or .sig adjacent file
+            Path defaultZkSig = context.getDocumentService().getFileStorageService()
+                    .resolveDefaultSignaturePath(documentFile.toPath());
+            if (defaultZkSig.toFile().exists()) {
+                signatureFile = defaultZkSig.toFile();
+                sigPathField.setText(signatureFile.getAbsolutePath());
+            } else {
+                File candidateSig = new File(documentFile.getAbsolutePath() + ".sig");
+                if (candidateSig.exists()) {
+                    signatureFile = candidateSig;
+                    sigPathField.setText(candidateSig.getAbsolutePath());
+                }
             }
         }
     }
 
     private void handleBrowseSignature() {
         JFileChooser chooser = new JFileChooser();
-        chooser.setDialogTitle("Select Detached Signature File (.sig)");
+        chooser.setDialogTitle("Select Detached Signature File (.zksig)");
         if (chooser.showOpenDialog(this) == JFileChooser.APPROVE_OPTION) {
             signatureFile = chooser.getSelectedFile();
             sigPathField.setText(signatureFile.getAbsolutePath());
@@ -300,19 +301,18 @@ public class VerificationPanel extends JPanel {
             File keyFile = chooser.getSelectedFile();
             customKeyPathField.setText(keyFile.getAbsolutePath());
             try {
-                activePublicKey = context.getCryptoService().loadPublicKeyFromPemFile(keyFile);
-                activeKeyAlias = keyFile.getName();
+                activePublicKey = context.getKeyManager().loadPublicKey(keyFile.toPath());
             } catch (Exception ex) {
-                DialogManager.showError(this, "Key Load Error", "Failed to parse public key PEM: " + ex.getMessage());
+                DialogManager.showError(this, "Key Load Error", "Failed to parse public key: " + ex.getMessage());
             }
         }
     }
 
     public void refreshKeySources() {
         keySourceComboBox.removeAllItems();
-        List<KeyInfo> keys = context.getCryptoService().getAvailableKeyInfos();
-        for (KeyInfo k : keys) {
-            keySourceComboBox.addItem("Key: " + k.getAlias() + " (" + k.getKeySizeBits() + "-bit)");
+        Map<String, PublicKey> keys = context.getKnownPublicKeys();
+        for (String alias : keys.keySet()) {
+            keySourceComboBox.addItem("Key: " + alias);
         }
         keySourceComboBox.addItem("Custom PEM File...");
         if (keySourceComboBox.getItemCount() > 0) {
@@ -329,17 +329,8 @@ public class VerificationPanel extends JPanel {
         browseCustomKeyBtn.setEnabled(isCustom);
 
         if (!isCustom) {
-            // Find key in active crypto service
-            List<KeyInfo> keys = context.getCryptoService().getAvailableKeyInfos();
-            for (KeyInfo k : keys) {
-                if (selected.contains("Key: " + k.getAlias())) {
-                    activeKeyAlias = k.getAlias();
-                    if (context.getCryptoService().getKeyPair(k.getAlias()) != null) {
-                        activePublicKey = context.getCryptoService().getKeyPair(k.getAlias()).getPublic();
-                    }
-                    break;
-                }
-            }
+            String alias = selected.replace("Key: ", "").trim();
+            activePublicKey = context.getKnownPublicKeys().get(alias);
         }
     }
 
@@ -352,7 +343,7 @@ public class VerificationPanel extends JPanel {
             return;
         }
         if (sigPath.isEmpty()) {
-            DialogManager.showError(this, "Missing Input", "Please select a detached signature file (.sig).");
+            DialogManager.showError(this, "Missing Input", "Please select a detached signature file (.zksig).");
             return;
         }
 
@@ -368,7 +359,6 @@ public class VerificationPanel extends JPanel {
             return;
         }
 
-        // Determine public key
         String keySelection = (String) keySourceComboBox.getSelectedItem();
         if (keySelection != null && keySelection.equals("Custom PEM File...")) {
             String customPath = customKeyPathField.getText().trim();
@@ -377,7 +367,7 @@ public class VerificationPanel extends JPanel {
                 return;
             }
             try {
-                activePublicKey = context.getCryptoService().loadPublicKeyFromPemFile(new File(customPath));
+                activePublicKey = context.getKeyManager().loadPublicKey(new File(customPath).toPath());
             } catch (Exception ex) {
                 DialogManager.showError(this, "Invalid Key", "Failed to load public key: " + ex.getMessage());
                 return;
@@ -392,7 +382,11 @@ public class VerificationPanel extends JPanel {
         SwingWorker<VerificationResult, Void> worker = new SwingWorker<>() {
             @Override
             protected VerificationResult doInBackground() {
-                return context.getCryptoService().verifySignature(docFile, sigFile, activePublicKey);
+                return context.getVerificationService().verifyDocument(
+                        docFile.toPath(),
+                        sigFile.toPath(),
+                        activePublicKey
+                );
             }
 
             @Override
@@ -403,16 +397,6 @@ public class VerificationPanel extends JPanel {
                 try {
                     VerificationResult result = get();
                     displayVerificationOutcome(result);
-
-                    OperationRecord.Status opStatus = result.isValid() ?
-                            OperationRecord.Status.SUCCESS : OperationRecord.Status.FAILED;
-
-                    context.getAuditService().logOperation(
-                            OperationRecord.OperationType.VERIFY,
-                            docFile.getName(),
-                            opStatus,
-                            result.getStatus().getDisplayName() + ": " + result.getDetailedMessage()
-                    );
                 } catch (Exception ex) {
                     DialogManager.showError(VerificationPanel.this, "Verification Error",
                             "An unexpected error occurred during verification: " + ex.getMessage());
@@ -427,30 +411,31 @@ public class VerificationPanel extends JPanel {
         resultCard.setVisible(true);
 
         VerificationResult.Status st = res.getStatus();
-        statusHeaderLabel.setText("Result: " + st.getDisplayName());
-        explanationLabel.setText("<html><body style='width: 500px;'>" + res.getDetailedMessage() + "</body></html>");
-        docHashLabel.setText("Computed SHA-256: " + res.getComputedSha256());
-        keyFingerprintLabel.setText("Public Key Fingerprint: " + res.getKeyFingerprint());
-        durationLabel.setText("Execution time: " + res.getVerificationDurationMs() + " ms");
+        statusHeaderLabel.setText("Outcome: " + st.name());
+        explanationLabel.setText("<html><body style='width: 500px;'>" + res.getUserSafeExplanation() + "</body></html>");
+        docHashLabel.setText("Computed SHA-256: " + (res.getCalculatedDocumentDigest().isEmpty() ? "N/A" : res.getCalculatedDocumentDigest()));
+        keyIdLabel.setText("Key Identifier: " + (res.getPublicKeyId().isEmpty() ? "N/A" : res.getPublicKeyId()));
+        technicalDetailsLabel.setText("Details: " + (res.getTechnicalDetails().isEmpty() ? "None" : res.getTechnicalDetails()));
 
         switch (st) {
-            case SIGNATURE_VALID:
+            case VALID_SIGNATURE:
                 statusBadgeLabel.setText("SIGNATURE VALID");
                 statusBadgeLabel.setForeground(ThemeManager.SUCCESS_GREEN);
                 statusHeaderLabel.setForeground(ThemeManager.SUCCESS_GREEN);
                 break;
-            case DOCUMENT_MODIFIED_OR_MISMATCH:
-                statusBadgeLabel.setText("MODIFIED OR MISMATCH");
+            case SIGNATURE_MISMATCH_OR_MODIFIED:
+                statusBadgeLabel.setText("MODIFIED / MISMATCH");
                 statusBadgeLabel.setForeground(ThemeManager.DANGER_RED);
                 statusHeaderLabel.setForeground(ThemeManager.DANGER_RED);
                 break;
-            case SIGNATURE_MISSING_OR_INVALID:
+            case MISSING_SIGNATURE_OR_METADATA:
+            case INVALID_SIGNATURE_ENCODING:
                 statusBadgeLabel.setText("INVALID SIGNATURE");
-                statusBadgeLabel.setForeground(ThemeManager.DANGER_RED);
-                statusHeaderLabel.setForeground(ThemeManager.DANGER_RED);
+                statusBadgeLabel.setForeground(ThemeManager.WARNING_AMBER);
+                statusHeaderLabel.setForeground(ThemeManager.WARNING_AMBER);
                 break;
-            case TRUSTED_PUBLIC_KEY_UNAVAILABLE:
-                statusBadgeLabel.setText("NO PUBLIC KEY");
+            case MISSING_OR_UNTRUSTED_PUBLIC_KEY:
+                statusBadgeLabel.setText("UNTRUSTED KEY");
                 statusBadgeLabel.setForeground(ThemeManager.WARNING_AMBER);
                 statusHeaderLabel.setForeground(ThemeManager.WARNING_AMBER);
                 break;
@@ -459,8 +444,7 @@ public class VerificationPanel extends JPanel {
                 statusBadgeLabel.setForeground(ThemeManager.WARNING_AMBER);
                 statusHeaderLabel.setForeground(ThemeManager.WARNING_AMBER);
                 break;
-            case VERIFICATION_ERROR:
-            case VERIFICATION_FAILED:
+            case PROCESSING_FAILURE:
             default:
                 statusBadgeLabel.setText("FAILED");
                 statusBadgeLabel.setForeground(ThemeManager.DANGER_RED);

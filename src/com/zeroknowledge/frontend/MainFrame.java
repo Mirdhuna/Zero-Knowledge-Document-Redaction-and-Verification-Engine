@@ -1,12 +1,8 @@
 package com.zeroknowledge.frontend;
 
-import com.zeroknowledge.backend.BackendContext;
-
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import java.awt.*;
-import java.awt.event.MouseAdapter;
-import java.awt.event.MouseEvent;
 import java.awt.image.BufferedImage;
 import java.util.HashMap;
 import java.util.Map;
@@ -136,7 +132,7 @@ public class MainFrame extends JFrame {
         navList.setOpaque(false);
         navList.setBorder(new EmptyBorder(10, 12, 10, 12));
 
-        addNavButton(navList, "Dashboard", CARD_DASHBOARD, "System summary & quick actions");
+        addNavButton(navList, "Dashboard", CARD_DASHBOARD, "System metrics & quick actions");
         navList.add(Box.createVerticalStrut(6));
         addNavButton(navList, "Redact Document", CARD_REDACTION, "Scan & mask sensitive entities");
         navList.add(Box.createVerticalStrut(6));
@@ -176,7 +172,6 @@ public class MainFrame extends JFrame {
                 if (isActive) {
                     g2.setColor(ThemeManager.SIDEBAR_ACTIVE);
                     g2.fillRoundRect(0, 0, getWidth(), getHeight(), 6, 6);
-                    // Blue left indicator bar
                     g2.setColor(ThemeManager.PRIMARY_BLUE);
                     g2.fillRoundRect(0, 4, 4, getHeight() - 8, 2, 2);
                 } else if (getModel().isRollover()) {
@@ -230,11 +225,10 @@ public class MainFrame extends JFrame {
         titleBox.add(currentSectionTitleLabel);
         topBar.add(titleBox, BorderLayout.WEST);
 
-        // Security Status indicator on top right
         JPanel rightInfo = new JPanel(new FlowLayout(FlowLayout.RIGHT, 12, 14));
         rightInfo.setOpaque(false);
 
-        JLabel statusDot = new JLabel("● SHA-256 / RSA Ready");
+        JLabel statusDot = new JLabel("● Backend Engine Operational");
         statusDot.setFont(ThemeManager.FONT_SMALL_BOLD);
         statusDot.setForeground(ThemeManager.SUCCESS_GREEN);
         rightInfo.add(statusDot);
@@ -263,14 +257,10 @@ public class MainFrame extends JFrame {
         return statusBar;
     }
 
-    /**
-     * Navigates to a specific workspace card and refreshes relevant data.
-     */
     public void navigateTo(String cardKey) {
         this.currentCard = cardKey;
         cardLayout.show(contentCardPanel, cardKey);
 
-        // Update button active state highlight
         for (Map.Entry<String, JButton> entry : navButtons.entrySet()) {
             boolean active = entry.getKey().equals(cardKey);
             JButton b = entry.getValue();
@@ -278,7 +268,6 @@ public class MainFrame extends JFrame {
             b.repaint();
         }
 
-        // Update header labels and refresh screen data
         switch (cardKey) {
             case CARD_DASHBOARD:
                 currentSectionBreadcrumbLabel.setText("Engine / Overview");
@@ -324,28 +313,20 @@ public class MainFrame extends JFrame {
         }
     }
 
-    /**
-     * Generates a clean vector shield / lock icon for the application window.
-     */
     private Image createAppIcon() {
         int size = 64;
         BufferedImage img = new BufferedImage(size, size, BufferedImage.TYPE_INT_ARGB);
         Graphics2D g2 = img.createGraphics();
         g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
 
-        // Rounded badge background
         g2.setColor(ThemeManager.PRIMARY_BLUE);
         g2.fillRoundRect(4, 4, size - 8, size - 8, 16, 16);
 
-        // Security Shield / Lock drawing
         g2.setColor(Color.WHITE);
         g2.setStroke(new BasicStroke(3.0f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
 
-        // Lock shackle
         g2.drawArc(22, 16, 20, 20, 0, 180);
-        // Lock body
         g2.fillRoundRect(18, 26, 28, 22, 6, 6);
-        // Keyhole
         g2.setColor(ThemeManager.PRIMARY_BLUE);
         g2.fillOval(30, 32, 4, 4);
         g2.fillRect(31, 34, 2, 6);
@@ -354,11 +335,7 @@ public class MainFrame extends JFrame {
         return img;
     }
 
-    /**
-     * Application entry point starting on the Event Dispatch Thread (EDT).
-     */
     public static void main(String[] args) {
-        // Set system look and feel for native fonts and system rendering
         try {
             UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName());
         } catch (Exception ignored) {

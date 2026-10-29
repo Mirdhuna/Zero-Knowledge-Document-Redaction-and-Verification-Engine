@@ -18,7 +18,7 @@ if %ERRORLEVEL% NEQ 0 (
 if not exist out mkdir out
 
 echo Compiling Java source files...
-dir /s /B *.java > sources.txt
+dir /s /B src\*.java core\*.java > sources.txt
 javac -d out @sources.txt
 del sources.txt
 

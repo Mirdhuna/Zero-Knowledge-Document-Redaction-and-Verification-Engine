@@ -1,18 +1,18 @@
 package com.zeroknowledge.frontend;
 
-import com.zeroknowledge.backend.BackendContext;
-import com.zeroknowledge.model.KeyInfo;
 import com.zeroknowledge.model.OperationRecord;
 
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import javax.swing.table.DefaultTableModel;
 import java.awt.*;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.function.Consumer;
 
 /**
- * Dashboard screen providing an overview of recent operations, security metrics,
+ * Dashboard screen providing an overview of recent operations, real security metrics,
  * cryptographic key status, and quick launch actions.
  */
 public class DashboardPanel extends JPanel {
@@ -28,6 +28,9 @@ public class DashboardPanel extends JPanel {
     private DefaultTableModel activityModel;
     private JPanel emptyStatePanel;
     private JScrollPane tableScrollPane;
+
+    private static final DateTimeFormatter TIME_FORMATTER =
+            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss").withZone(ZoneId.systemDefault());
 
     public DashboardPanel(BackendContext context, Consumer<String> navigationConsumer) {
         this.context = context;
@@ -59,7 +62,7 @@ public class DashboardPanel extends JPanel {
         titleLabel.setForeground(ThemeManager.TEXT_PRIMARY);
 
         JLabel subtitleLabel = new JLabel(
-                "Detect and mask sensitive PII/secrets, compute verifiable SHA-256 digests, and validate detached RSA signatures."
+                "Detect sensitive PII/secrets, confirm redactions, generate versioned detached RSA signatures, and verify document integrity."
         );
         subtitleLabel.setFont(ThemeManager.FONT_REGULAR);
         subtitleLabel.setForeground(ThemeManager.TEXT_SECONDARY);
@@ -97,8 +100,8 @@ public class DashboardPanel extends JPanel {
         verifiedCountLabel = new JLabel("0");
         keyStatusLabel = new JLabel("None");
 
-        statsGrid.add(createMetricCard("Scanned Documents", scannedCountLabel, "Locally processed", ThemeManager.PRIMARY_BLUE));
-        statsGrid.add(createMetricCard("Redacted Documents", redactedCountLabel, "Sanitized & saved", ThemeManager.SUCCESS_GREEN));
+        statsGrid.add(createMetricCard("Scanned Documents", scannedCountLabel, "Locally inspected", ThemeManager.PRIMARY_BLUE));
+        statsGrid.add(createMetricCard("Redacted Documents", redactedCountLabel, "Sanitized & exported", ThemeManager.SUCCESS_GREEN));
         statsGrid.add(createMetricCard("Verified Signatures", verifiedCountLabel, "Integrity confirmed", new Color(13, 148, 136)));
         statsGrid.add(createMetricCard("Active RSA Key", keyStatusLabel, "Current signing identity", ThemeManager.WARNING_AMBER));
 
@@ -132,7 +135,7 @@ public class DashboardPanel extends JPanel {
         activityCard.add(actHeader, BorderLayout.NORTH);
 
         // Activity Table
-        String[] columns = {"Timestamp", "Operation", "Document", "Status", "Details"};
+        String[] columns = {"Timestamp", "Operation", "Document / Target", "Result", "Technical Details"};
         activityModel = new DefaultTableModel(columns, 0) {
             @Override
             public boolean isCellEditable(int row, int col) {
@@ -142,10 +145,10 @@ public class DashboardPanel extends JPanel {
         recentActivityTable = new JTable(activityModel);
         ThemeManager.styleTable(recentActivityTable);
         recentActivityTable.getColumnModel().getColumn(0).setPreferredWidth(140);
-        recentActivityTable.getColumnModel().getColumn(1).setPreferredWidth(90);
+        recentActivityTable.getColumnModel().getColumn(1).setPreferredWidth(110);
         recentActivityTable.getColumnModel().getColumn(2).setPreferredWidth(180);
-        recentActivityTable.getColumnModel().getColumn(3).setPreferredWidth(80);
-        recentActivityTable.getColumnModel().getColumn(4).setPreferredWidth(220);
+        recentActivityTable.getColumnModel().getColumn(3).setPreferredWidth(90);
+        recentActivityTable.getColumnModel().getColumn(4).setPreferredWidth(260);
 
         tableScrollPane = new JScrollPane(recentActivityTable);
         tableScrollPane.setBorder(BorderFactory.createLineBorder(ThemeManager.CARD_BORDER));
@@ -174,20 +177,20 @@ public class DashboardPanel extends JPanel {
         rightInfoCard.add(infoHeader);
         rightInfoCard.add(Box.createVerticalStrut(12));
 
-        rightInfoCard.add(createSecurityBullet("Pure In-Memory Redaction",
-                "Matches are redacted directly via memory streams. Original files are never modified without explicit approval."));
+        rightInfoCard.add(createSecurityBullet("Strict Capability Boundaries",
+                "Text & CSV formats support deep byte-level redaction. PDF files reject redaction to avoid false visual overlay illusions."));
         rightInfoCard.add(Box.createVerticalStrut(10));
 
         rightInfoCard.add(createSecurityBullet("Deterministic SHA-256",
-                "Cryptographic hashes are calculated directly using JDK standard MessageDigest before and after redaction."));
+                "Cryptographic digests are calculated via streaming MessageDigest over exact file bytes before and after redaction."));
         rightInfoCard.add(Box.createVerticalStrut(10));
 
-        rightInfoCard.add(createSecurityBullet("Asymmetric Detached Signatures",
-                "Documents can be signed using RSA private keys. Detached signatures allow third-party verification without exposing original contents."));
+        rightInfoCard.add(createSecurityBullet("Detached RSA Signatures",
+                "Documents are signed via standard SHA256withRSA. Detached .zksig files record metadata without modifying source files."));
         rightInfoCard.add(Box.createVerticalStrut(10));
 
-        rightInfoCard.add(createSecurityBullet("Honest Verification Assurance",
-                "Verification checks cryptographic consistency relative to a public key. It does not make false zero-knowledge claims."));
+        rightInfoCard.add(createSecurityBullet("Auditable Privacy",
+                "Audit logs record operations with automatic secret scrubbing. Raw sensitive values are never logged or exported."));
 
         centerContainer.add(rightInfoCard, BorderLayout.EAST);
         add(centerContainer, BorderLayout.CENTER);
@@ -234,45 +237,53 @@ public class DashboardPanel extends JPanel {
     }
 
     /**
-     * Refreshes dashboard statistics and recent activity table from real backend data.
+     * Refreshes dashboard statistics and recent activity table from the real backend AuditService.
      */
     public void refreshData() {
-        int scanned = context.getAuditService().getScannedCount();
-        int redacted = context.getAuditService().getRedactedCount();
-        int verified = context.getAuditService().getVerifiedCount();
+        List<OperationRecord> allRecords = context.getAuditService().getRecords();
+
+        int scanned = 0;
+        int redacted = 0;
+        int verified = 0;
+
+        for (OperationRecord r : allRecords) {
+            if (r.isSuccess()) {
+                if (r.getOperationType() == OperationRecord.OperationType.DOCUMENT_SCAN) {
+                    scanned++;
+                } else if (r.getOperationType() == OperationRecord.OperationType.DOCUMENT_REDACT) {
+                    redacted++;
+                } else if (r.getOperationType() == OperationRecord.OperationType.SIGNATURE_VERIFY) {
+                    verified++;
+                }
+            }
+        }
 
         scannedCountLabel.setText(String.valueOf(scanned));
         redactedCountLabel.setText(String.valueOf(redacted));
         verifiedCountLabel.setText(String.valueOf(verified));
 
-        String selectedAlias = context.getCryptoService().getSelectedAlias();
+        String selectedAlias = context.getActiveKeyAlias();
         if (selectedAlias != null) {
-            KeyInfo info = context.getCryptoService().getKeyInfo(selectedAlias);
-            if (info != null) {
-                keyStatusLabel.setText(info.getAlgorithm() + " " + info.getKeySizeBits() + "b");
-            } else {
-                keyStatusLabel.setText(selectedAlias);
-            }
+            keyStatusLabel.setText(selectedAlias);
         } else {
             keyStatusLabel.setText("Not Configured");
         }
 
         // Populate recent activity
         activityModel.setRowCount(0);
-        List<OperationRecord> records = context.getAuditService().getRecords();
+        int limit = Math.min(allRecords.size(), 8);
 
-        if (records.isEmpty()) {
+        if (allRecords.isEmpty()) {
             tableScrollPane.setViewportView(emptyStatePanel);
         } else {
             tableScrollPane.setViewportView(recentActivityTable);
-            int limit = Math.min(records.size(), 8);
             for (int i = 0; i < limit; i++) {
-                OperationRecord r = records.get(i);
+                OperationRecord r = allRecords.get(i);
                 activityModel.addRow(new Object[]{
-                        r.getFormattedTimestamp(),
+                        TIME_FORMATTER.format(r.getTimestamp()),
                         r.getOperationType().name(),
                         r.getDocumentIdentifier(),
-                        r.getStatus().name(),
+                        r.isSuccess() ? "SUCCESS" : "FAILED",
                         r.getDetails()
                 });
             }

@@ -3,7 +3,7 @@
 
 ### 1. Executive Summary
 
-The **Zero-Knowledge Document Redaction & Verification Engine** desktop application is developed with pure **Java 21**, **AWT**, and **Swing**, relying exclusively on standard JDK libraries. It provides a secure, privacy-preserving workflow for detecting sensitive entities (PII, credentials, network addresses), applying redactions, computing deterministic SHA-256 digests, generating detached RSA signatures, and verifying cryptographic authenticity.
+The **Zero-Knowledge Document Redaction & Verification Engine** desktop application is developed with pure **Java 21**, **AWT**, and **Swing**, relying exclusively on standard JDK libraries. It provides a secure, privacy-preserving workflow for detecting sensitive entities (PII, credentials, phone numbers, SSNs, payment cards), applying user-confirmed redactions, computing deterministic streaming SHA-256 digests, generating versioned detached RSA signatures (`.zksig`), and verifying cryptographic document integrity against trusted public keys.
 
 ---
 
@@ -32,22 +32,28 @@ The application follows a clean, decoupled architecture with dependency injectio
 │                com.zeroknowledge.backend               │
 ├────────────────────────────────────────────────────────┤
 │ BackendContext (Shared Service Provider)               │
-│ ├── RedactionService (Regex Scanner, Stream Replacer)  │
-│ ├── CryptoService    (SHA-256, RSA KeyGen, Sign/Verify)│
-│ ├── AuditService     (Thread-safe Event Journaling)    │
-│ └── ConfigService    (Properties-based Settings)       │
+│ ├── DocumentService     (File inspection, scanning)    │
+│ ├── SensitiveDataDetector (Configurable regex engine) │
+│ ├── RedactionService    (Overlap-safe stream replacer) │
+│ ├── VerificationService (7-outcome signature verifier) │
+│ ├── AccessControlService (Role-based access control)   │
+│ ├── KeyManager          (RSA 3072 keygen & PEM storage)│
+│ ├── SignatureService    (Detached ZK-SIG-1.0 signing)  │
+│ ├── HashService         (Streaming SHA-256 digests)    │
+│ └── AuditService        (Local thread-safe event log)  │
 └──────────────────────────┬─────────────────────────────┘
                            │ Strongly-Typed Models
 ┌──────────────────────────▼─────────────────────────────┐
-│                Domain Models & Metadata                │
-│            com.zeroknowledge.model & core              │
+│                Domain Models & Storage                 │
+│         com.zeroknowledge.model & storage              │
 ├────────────────────────────────────────────────────────┤
 │ ├── RedactionMatch      (Candidate coordinates & masks)│
 │ ├── RedactionResult     (Status, dual digests, sig)    │
 │ ├── VerificationResult  (7-state outcome, diagnostics) │
-│ ├── KeyInfo             (Algorithm, size, fingerprint) │
+│ ├── DocumentMetadata    (Format, size, SHA-256 digest) │
 │ ├── OperationRecord     (Audit timestamp, type, status)│
-│ └── DocumentMetaData    (File attributes & formatting) │
+│ ├── ApplicationConfig   (Paths, key size, limits)      │
+│ └── FileStorageService  (Safe path derivation & I/O)   │
 └────────────────────────────────────────────────────────┘
 ```
 
@@ -70,41 +76,42 @@ The application follows a clean, decoupled architecture with dependency injectio
 
 #### `RedactionPanel.java`
 Executes an interactive 5-step sanitization workflow:
-1. **Document Selection**: Inspects file metadata (`core.DocumentMetaData`) and performs engine capability verification.
-2. **Scanning**: Executes background `SwingWorker` scanning for sensitive patterns (SSN, Email, Credit Cards, Phone numbers, API secrets, IPv4).
-3. **Candidate Review**: Displays matches in a styled `JTable` with checkboxes, masked previews, row/column locations, and rule explanations. Supports individual selection, "Select All", and "Deselect All".
+1. **Document Selection**: Inspects file metadata (`DocumentMetadata`) and performs engine capability verification (`DocumentFormat.isRedactionSupported()`).
+2. **Scanning**: Executes background `SwingWorker` scanning for sensitive patterns (SSN, Email, Credit Cards, Phone numbers, Titled Names) via `DocumentService.scanDocument(Path)`.
+3. **Candidate Review**: Displays matches in a styled `JTable` with checkboxes, masked previews, row/column coordinates, and rule explanations. Supports individual selection, "Select All", and "Deselect All".
 4. **Output & Signing Configuration**: Lets the user specify destination path (strictly prohibiting overwriting the original document) and select an RSA key for detached digital signing.
-5. **Execution & Results**: Displays original and redacted SHA-256 digests, redacted count, and detached `.sig` path.
+5. **Execution & Results**: Displays original and redacted SHA-256 digests, redacted count, and detached `.zksig` path.
 
 #### `VerificationPanel.java`
-- Independent workspace for verifying detached signatures.
-- Accepts target document, detached `.sig` file, and an active RSA key or custom X.509 PEM public key.
+- Independent workspace for verifying detached `.zksig` signatures.
+- Accepts target document, detached `.zksig` file, and an active RSA key or custom X.509 PEM public key.
 - Accurately reports 7 distinct cryptographic states:
-  - `SIGNATURE_VALID`
-  - `VERIFICATION_FAILED`
-  - `DOCUMENT_MODIFIED_OR_MISMATCH`
-  - `SIGNATURE_MISSING_OR_INVALID`
-  - `TRUSTED_PUBLIC_KEY_UNAVAILABLE`
+  - `VALID_SIGNATURE`
+  - `SIGNATURE_MISMATCH_OR_MODIFIED`
+  - `MISSING_SIGNATURE_OR_METADATA`
+  - `INVALID_SIGNATURE_ENCODING`
+  - `MISSING_OR_UNTRUSTED_PUBLIC_KEY`
   - `UNSUPPORTED_OPERATION`
-  - `VERIFICATION_ERROR`
-- Displays computed SHA-256 hash, public key fingerprint, execution time in milliseconds, and technical explanation.
+  - `PROCESSING_FAILURE`
+- Displays computed SHA-256 hash, public key ID, and technical explanation.
 
 #### `KeyManagementPanel.java`
 - RSA Key Pair Generator supporting 2048, 3072, and 4096-bit keys running in background `SwingWorker`.
-- Public key inspector with SHA-256 key fingerprint and standard X.509 PEM formatted text view.
+- Public key inspector with SHA-256 key identifier (`SHA256:<16-hex>`) and standard X.509 PEM formatted text view.
 - Export public key to `.pem` file.
 - Import external public key from `.pem` file.
+- Encrypted private key backup with user passphrase (AES-256-GCM + PBKDF2).
 - Active signing key selector.
-- Security advisory banner highlighting key storage boundaries.
 
 #### `AuditPanel.java`
-- Provides an immutable local audit log of all security-sensitive operations (`SCAN`, `REDACT`, `SIGN`, `VERIFY`, `KEY_GEN`).
+- Provides an immutable local audit log of all security-sensitive operations (`DOCUMENT_SCAN`, `DOCUMENT_REDACT`, `DOCUMENT_SIGN`, `SIGNATURE_VERIFY`, `KEY_GENERATION`).
 - Live filtering by operation type and status.
 - Clear history action with confirmation dialog.
 
 #### `SettingsPanel.java`
-- Output and key directory configuration persisted via standard Java properties.
-- Toggle individual pattern detection rules (Email, SSN, Credit Card, Phone, API Keys, IP Addresses).
+- Working directories and paths from `ApplicationConfig`.
+- Role-based Access Control (RBAC) role selection.
+- Registered heuristic detection rules inspection (`SensitiveDataDetector.getRules()`).
 - Comprehensive educational section defining the mathematical differences between Redaction, Hashing, Digital Signatures, and Zero-Knowledge Proofs.
 
 #### `ThemeManager.java` & `DialogManager.java`
@@ -129,10 +136,10 @@ All compute-intensive operations execute asynchronously using `javax.swing.Swing
 
 1. **PDF Redaction Limitation**:
    - **Status**: Unsupported in standard JDK runtime.
-   - **Rationale**: Standard Java SE 21 does not bundle a native PDF parser or vector rasterizer. Merely drawing a black box over a PDF creates an unsafe visual illusion where underlying text streams remain intact. The engine honestly reports this limitation and refuses to simulate false security.
+   - **Rationale**: Standard Java SE 21 does not bundle a native PDF parser or vector rasterizer. Merely drawing a black box over a PDF creates an unsafe visual illusion where underlying text streams remain intact. The engine honestly reports this limitation and refuses to simulate false security. Whole-file SHA-256 hashing and detached RSA signing/verification are supported for PDFs.
 2. **Zero-Knowledge Proof Distinction**:
    - **Status**: Not implemented (and clearly disclosed in UI).
    - **Rationale**: SHA-256 digests and RSA asymmetric digital signatures do not constitute Zero-Knowledge Proofs (ZKPs) like zk-SNARKs/zk-STARKs. The application provides data redaction and cryptographic integrity verification without making false ZKP claims.
 3. **In-Memory Session Key Storage**:
-   - **Status**: Private keys remain held in process memory during the application session.
-   - **Rationale**: Without a dedicated HSM or OS credential vault (such as macOS Keychain or Windows DPAPI), serializing plaintext private keys to disk would present a security risk. Public keys can be exported in PEM format; private keys are retained securely in memory.
+   - **Status**: Active private keys remain held in process memory during the application session or saved with user passphrase via `KeyManager.saveEncryptedPrivateKey(...)`.
+   - **Rationale**: Plaintext private keys are never exposed in the interface or written unencrypted to disk.

@@ -1,17 +1,14 @@
 package com.zeroknowledge.frontend;
 
 import javax.swing.*;
-import javax.swing.border.Border;
 import javax.swing.border.EmptyBorder;
 import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.JTableHeader;
 import java.awt.*;
-import java.awt.event.MouseAdapter;
-import java.awt.event.MouseEvent;
 
 /**
  * Centralized theme, color palette, typography, and UI component styling.
- * Uses only standard JDK AWT and Swing APIs with custom painting.
+ * Uses only standard JDK AWT and Swing APIs with custom antialiased painting.
  */
 public final class ThemeManager {
 
@@ -27,11 +24,9 @@ public final class ThemeManager {
     public static final Color WORKSPACE_BG = new Color(248, 250, 252);     // Very light slate/grey
     public static final Color CARD_BG = new Color(255, 255, 255);          // Pure white
     public static final Color CARD_BORDER = new Color(226, 232, 240);      // Light grey border
-    public static final Color CARD_BORDER_FOCUSED = new Color(148, 163, 184);
 
     public static final Color PRIMARY_BLUE = new Color(2, 132, 199);       // Muted teal/blue
     public static final Color PRIMARY_BLUE_HOVER = new Color(3, 105, 161);
-    public static final Color PRIMARY_BLUE_ACTIVE = new Color(7, 89, 133);
 
     public static final Color SUCCESS_GREEN = new Color(22, 163, 74);      // Verified/Completed
     public static final Color SUCCESS_BG = new Color(240, 253, 244);
@@ -50,7 +45,6 @@ public final class ThemeManager {
     public static final Color TEXT_MUTED = new Color(148, 163, 184);       // Light slate
 
     public static final Color TABLE_HEADER_BG = new Color(241, 245, 249);
-    public static final Color TABLE_ROW_ALT = new Color(248, 250, 252);
     public static final Color TABLE_GRID = new Color(226, 232, 240);
     public static final Color TABLE_SELECTION = new Color(224, 242, 254);
 

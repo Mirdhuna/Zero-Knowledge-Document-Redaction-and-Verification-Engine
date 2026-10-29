@@ -12,7 +12,6 @@ echo "=================================================================="
 echo "Zero-Knowledge Document Redaction & Verification Engine"
 echo "=================================================================="
 
-# Check Java version
 if ! command -v javac &> /dev/null; then
     echo "Error: javac (JDK 21+) is not found on your PATH."
     exit 1
@@ -23,7 +22,7 @@ echo "Detected Java Compiler version: $JAVA_VER"
 
 echo "Compiling Java source files..."
 mkdir -p out
-javac -d out $(find . -name "*.java")
+javac -d out $(find src core -name "*.java")
 
 echo "Starting Application on Event Dispatch Thread..."
 java -cp out com.zeroknowledge.frontend.MainFrame "$@"

@@ -1,32 +1,29 @@
 package com.zeroknowledge.frontend;
 
-import com.zeroknowledge.backend.BackendContext;
-import com.zeroknowledge.model.KeyInfo;
-import com.zeroknowledge.model.OperationRecord;
+import com.zeroknowledge.document.DocumentFormat;
+import com.zeroknowledge.model.DocumentMetadata;
 import com.zeroknowledge.model.RedactionMatch;
 import com.zeroknowledge.model.RedactionResult;
-import core.DocumentMetaData;
 
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import javax.swing.table.DefaultTableModel;
 import java.awt.*;
 import java.io.File;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
+import java.nio.file.Path;
 import java.security.KeyPair;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Set;
+import java.util.Map;
 import java.util.function.Consumer;
 
 /**
  * 5-Step Redaction Workspace:
- * 1. Document Selection & Capability Check
+ * 1. Document Selection & Capability Verification
  * 2. Background Sensitive Data Scanning
  * 3. Review & Selection of Candidates
- * 4. Destination & Signing Configuration
- * 5. Redaction Execution & Verification Summary
+ * 4. Destination & Detached Signing Configuration
+ * 5. Redaction Execution & Cryptographic Verification Summary
  */
 public class RedactionPanel extends JPanel {
 
@@ -35,13 +32,14 @@ public class RedactionPanel extends JPanel {
 
     // State
     private File selectedFile;
-    private DocumentMetaData documentMetaData;
+    private DocumentMetadata documentMetadata;
     private List<RedactionMatch> currentMatches = new ArrayList<>();
 
     // UI Components - Step 1: File selection
     private JLabel fileNameLabel;
     private JLabel fileSizeLabel;
     private JLabel fileTypeLabel;
+    private JLabel fileShaLabel;
     private JLabel capabilityStatusBadge;
     private JButton chooseFileBtn;
     private JButton scanBtn;
@@ -60,7 +58,6 @@ public class RedactionPanel extends JPanel {
     private JCheckBox signOutputCheckBox;
     private JComboBox<String> keySelectorComboBox;
     private JButton applyRedactionBtn;
-    private JTextArea previewTextArea;
 
     // UI Components - Step 5: Result Card
     private JPanel resultCard;
@@ -82,28 +79,27 @@ public class RedactionPanel extends JPanel {
     }
 
     private void initUI() {
-        // Main container with vertical scroll
         JPanel contentContainer = new JPanel();
         contentContainer.setLayout(new BoxLayout(contentContainer, BoxLayout.Y_AXIS));
         contentContainer.setOpaque(false);
 
-        // Header Panel
+        // Header
         contentContainer.add(createHeaderPanel());
         contentContainer.add(Box.createVerticalStrut(16));
 
-        // Step 1: File Selection & Metadata Card
+        // Step 1: File Selection & Capability Check
         contentContainer.add(createFileSelectionCard());
         contentContainer.add(Box.createVerticalStrut(16));
 
-        // Step 2 & 3: Scan & Candidates Review Card
+        // Steps 2 & 3: Scan & Candidates Review
         contentContainer.add(createCandidatesCard());
         contentContainer.add(Box.createVerticalStrut(16));
 
-        // Step 4: Redaction & Signing Configuration Card
+        // Step 4: Output & Detached Signing
         contentContainer.add(createExecutionCard());
         contentContainer.add(Box.createVerticalStrut(16));
 
-        // Step 5: Result Summary Card
+        // Step 5: Result Summary
         resultCard = createResultCard();
         resultCard.setVisible(false);
         contentContainer.add(resultCard);
@@ -125,11 +121,11 @@ public class RedactionPanel extends JPanel {
         left.setLayout(new BoxLayout(left, BoxLayout.Y_AXIS));
         left.setOpaque(false);
 
-        JLabel title = new JLabel("Redaction Workspace");
+        JLabel title = new JLabel("Document Redaction Workspace");
         title.setFont(ThemeManager.FONT_TITLE);
         title.setForeground(ThemeManager.TEXT_PRIMARY);
 
-        JLabel desc = new JLabel("Detect sensitive entities, verify redaction rules, and export cryptographically sanitized files.");
+        JLabel desc = new JLabel("Detect sensitive entities, review matches, and export cryptographically sanitized files.");
         desc.setFont(ThemeManager.FONT_REGULAR);
         desc.setForeground(ThemeManager.TEXT_SECONDARY);
 
@@ -153,7 +149,6 @@ public class RedactionPanel extends JPanel {
         stepLabel.setForeground(ThemeManager.TEXT_PRIMARY);
         card.add(stepLabel, BorderLayout.NORTH);
 
-        // File Details Grid
         JPanel grid = new JPanel(new GridLayout(2, 3, 14, 8));
         grid.setOpaque(false);
 
@@ -166,16 +161,19 @@ public class RedactionPanel extends JPanel {
         fileTypeLabel = new JLabel("-");
         fileTypeLabel.setFont(ThemeManager.FONT_REGULAR);
 
+        fileShaLabel = new JLabel("-");
+        fileShaLabel.setFont(ThemeManager.FONT_MONO);
+
         capabilityStatusBadge = ThemeManager.createBadge("Awaiting File", ThemeManager.CARD_BORDER, ThemeManager.TEXT_MUTED);
 
         grid.add(createLabeledField("Document Name", fileNameLabel));
         grid.add(createLabeledField("File Size", fileSizeLabel));
-        grid.add(createLabeledField("Format / Extension", fileTypeLabel));
+        grid.add(createLabeledField("Detected Format", fileTypeLabel));
         grid.add(createLabeledField("Engine Capability", capabilityStatusBadge));
+        grid.add(createLabeledField("SHA-256 Digest", fileShaLabel));
 
         card.add(grid, BorderLayout.CENTER);
 
-        // Action Buttons Row
         JPanel btnRow = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 0));
         btnRow.setOpaque(false);
 
@@ -212,13 +210,11 @@ public class RedactionPanel extends JPanel {
         topRow.add(candidateCountLabel, BorderLayout.EAST);
         card.add(topRow, BorderLayout.NORTH);
 
-        // Scan Progress bar (hidden by default)
         scanProgressBar = new JProgressBar();
         scanProgressBar.setIndeterminate(true);
         scanProgressBar.setVisible(false);
 
-        // Candidate JTable
-        String[] columns = {"Apply?", "ID", "Type", "Masked Preview", "Location", "Detection Rule"};
+        String[] columns = {"Apply?", "Candidate Type", "Masked Preview", "Location", "Rule & Confidence"};
         candidateTableModel = new DefaultTableModel(columns, 0) {
             @Override
             public Class<?> getColumnClass(int columnIndex) {
@@ -227,24 +223,22 @@ public class RedactionPanel extends JPanel {
 
             @Override
             public boolean isCellEditable(int row, int column) {
-                return column == 0; // Only checkbox is editable
+                return column == 0;
             }
         };
 
         candidateTable = new JTable(candidateTableModel);
         ThemeManager.styleTable(candidateTable);
         candidateTable.getColumnModel().getColumn(0).setPreferredWidth(60);
-        candidateTable.getColumnModel().getColumn(1).setPreferredWidth(60);
-        candidateTable.getColumnModel().getColumn(2).setPreferredWidth(120);
-        candidateTable.getColumnModel().getColumn(3).setPreferredWidth(180);
-        candidateTable.getColumnModel().getColumn(4).setPreferredWidth(120);
-        candidateTable.getColumnModel().getColumn(5).setPreferredWidth(260);
+        candidateTable.getColumnModel().getColumn(1).setPreferredWidth(140);
+        candidateTable.getColumnModel().getColumn(2).setPreferredWidth(180);
+        candidateTable.getColumnModel().getColumn(3).setPreferredWidth(130);
+        candidateTable.getColumnModel().getColumn(4).setPreferredWidth(250);
 
-        // Checkbox listener to update candidate selected state
         candidateTableModel.addTableModelListener(e -> {
             if (e.getColumn() == 0 && e.getFirstRow() >= 0 && e.getFirstRow() < currentMatches.size()) {
                 Boolean selected = (Boolean) candidateTableModel.getValueAt(e.getFirstRow(), 0);
-                currentMatches.get(e.getFirstRow()).setSelected(selected != null && selected);
+                currentMatches.get(e.getFirstRow()).setSelectedForRedaction(selected != null && selected);
                 updateSelectedCount();
             }
         });
@@ -260,7 +254,6 @@ public class RedactionPanel extends JPanel {
         tableCenter.add(tableScroll, BorderLayout.CENTER);
         card.add(tableCenter, BorderLayout.CENTER);
 
-        // Selection Controls Row
         JPanel bottomRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 0));
         bottomRow.setOpaque(false);
 
@@ -283,7 +276,7 @@ public class RedactionPanel extends JPanel {
         JPanel card = ThemeManager.createCardPanel();
         card.setLayout(new BorderLayout(0, 12));
 
-        JLabel stepLabel = new JLabel("STEP 4: Output Destination & Cryptographic Signature");
+        JLabel stepLabel = new JLabel("STEP 4: Output Destination & Detached RSA Signing");
         stepLabel.setFont(ThemeManager.FONT_HEADER);
         stepLabel.setForeground(ThemeManager.TEXT_PRIMARY);
         card.add(stepLabel, BorderLayout.NORTH);
@@ -296,7 +289,7 @@ public class RedactionPanel extends JPanel {
 
         // Output Path
         gbc.gridx = 0; gbc.gridy = 0; gbc.weightx = 0.0;
-        JLabel outLbl = new JLabel("Sanitized Output Path:");
+        JLabel outLbl = new JLabel("Sanitized Destination:");
         outLbl.setFont(ThemeManager.FONT_SMALL_BOLD);
         form.add(outLbl, gbc);
 
@@ -306,13 +299,13 @@ public class RedactionPanel extends JPanel {
         form.add(outputPathField, gbc);
 
         gbc.gridx = 2; gbc.gridy = 0; gbc.weightx = 0.0;
-        browseOutputBtn = ThemeManager.createSecondaryButton("Choose Destination...");
+        browseOutputBtn = ThemeManager.createSecondaryButton("Choose File...");
         browseOutputBtn.addActionListener(e -> handleBrowseOutput());
         form.add(browseOutputBtn, gbc);
 
-        // Digital Signing
+        // Detached Signing
         gbc.gridx = 0; gbc.gridy = 1; gbc.weightx = 0.0;
-        signOutputCheckBox = new JCheckBox("Digitally Sign Redacted Document (Detached RSA Signature)");
+        signOutputCheckBox = new JCheckBox("Digitally Sign Sanitized Document (Detached .zksig)");
         signOutputCheckBox.setFont(ThemeManager.FONT_REGULAR_BOLD);
         signOutputCheckBox.setOpaque(false);
         signOutputCheckBox.addActionListener(e -> keySelectorComboBox.setEnabled(signOutputCheckBox.isSelected()));
@@ -327,11 +320,10 @@ public class RedactionPanel extends JPanel {
 
         card.add(form, BorderLayout.CENTER);
 
-        // Action Row
         JPanel actionRow = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 0));
         actionRow.setOpaque(false);
 
-        applyRedactionBtn = ThemeManager.createPrimaryButton("Confirm & Apply Redaction");
+        applyRedactionBtn = ThemeManager.createPrimaryButton("Confirm & Apply Redactions");
         applyRedactionBtn.setEnabled(false);
         applyRedactionBtn.addActionListener(e -> handleApplyRedaction());
 
@@ -362,7 +354,7 @@ public class RedactionPanel extends JPanel {
         resultCountLabel = new JLabel("Redactions Applied: -");
         resultCountLabel.setFont(ThemeManager.FONT_REGULAR);
 
-        resultHashesLabel = new JLabel("Cryptographic Digests (SHA-256): -");
+        resultHashesLabel = new JLabel("SHA-256 Digests: -");
         resultHashesLabel.setFont(ThemeManager.FONT_MONO);
 
         resultSignatureLabel = new JLabel("Signature Status: -");
@@ -394,45 +386,53 @@ public class RedactionPanel extends JPanel {
         chooser.setDialogTitle("Select Document for Scanning & Redaction");
         int res = chooser.showOpenDialog(this);
         if (res == JFileChooser.APPROVE_OPTION) {
-            File f = chooser.getSelectedFile();
-            setSelectedDocument(f);
+            setSelectedDocument(chooser.getSelectedFile());
         }
     }
 
     private void setSelectedDocument(File file) {
         this.selectedFile = file;
-        this.documentMetaData = new DocumentMetaData(file);
+        Path path = file.toPath();
 
-        fileNameLabel.setText(documentMetaData.getFileName());
-        fileSizeLabel.setText(documentMetaData.getFormattedSize());
-        fileTypeLabel.setText(documentMetaData.getFileExtension().toUpperCase());
+        DocumentFormat format = context.getDocumentService().detectFormat(path);
+        fileNameLabel.setText(file.getName());
+        fileSizeLabel.setText(file.length() < 1024 ? file.length() + " B" : (file.length() / 1024) + " KB");
+        fileTypeLabel.setText(format.name());
 
-        // Check backend capability
-        if (context.getRedactionService().isPdf(file)) {
-            capabilityStatusBadge.setText("Unsupported (PDF)");
+        if (format == DocumentFormat.PDF) {
+            capabilityStatusBadge.setText("Unsupported for Redaction (PDF)");
             capabilityStatusBadge.setForeground(ThemeManager.DANGER_RED);
+            fileShaLabel.setText("-");
             scanBtn.setEnabled(false);
-            DialogManager.showWarning(this, "PDF Format Limitation",
-                    context.getRedactionService().getPdfLimitationExplanation());
-        } else if (context.getRedactionService().isSupportedForRedaction(file)) {
-            capabilityStatusBadge.setText("Supported Format");
+            DialogManager.showWarning(this, "PDF Capability Boundary",
+                    "Standard JDK 21 does not include a PDF parsing and stream-sanitizing engine. Text extraction & content redaction are unsupported. Visual overlays create a false sense of security while leaving underlying text intact.");
+        } else if (format.isRedactionSupported()) {
+            capabilityStatusBadge.setText("Supported (" + format.name() + ")");
             capabilityStatusBadge.setForeground(ThemeManager.SUCCESS_GREEN);
             scanBtn.setEnabled(true);
 
-            // Suggest default output path (never overwriting the original)
-            String dir = context.getConfigService().getOutputDirectory();
-            String name = file.getName();
-            int dot = name.lastIndexOf('.');
-            String base = (dot > 0) ? name.substring(0, dot) : name;
-            String ext = (dot > 0) ? name.substring(dot) : ".txt";
-            File defOut = new File(dir, base + "_redacted" + ext);
-            outputPathField.setText(defOut.getAbsolutePath());
+            try {
+                this.documentMetadata = context.getDocumentService().inspectDocument(path);
+                String digest = documentMetadata.getSha256Digest();
+                fileShaLabel.setText(digest.length() > 24 ? digest.substring(0, 24) + "..." : digest);
+            } catch (Exception ex) {
+                fileShaLabel.setText("Digest calculation error");
+            }
+
+            // Derive safe non-overwriting destination
+            try {
+                Path defaultOut = context.getDocumentService().getFileStorageService().resolveDefaultRedactedOutputPath(path);
+                outputPathField.setText(defaultOut.toAbsolutePath().toString());
+            } catch (Exception ex) {
+                outputPathField.setText(path.toAbsolutePath().toString() + ".redacted.txt");
+            }
         } else {
             capabilityStatusBadge.setText("Unsupported Format");
             capabilityStatusBadge.setForeground(ThemeManager.WARNING_AMBER);
+            fileShaLabel.setText("-");
             scanBtn.setEnabled(false);
-            DialogManager.showError(this, "Unsupported Format",
-                    "Format '" + documentMetaData.getFileExtension() + "' is not supported. Supported: txt, csv, log, json, md");
+            DialogManager.showError(this, "Unsupported Document Format",
+                    "The selected file format is not supported for redaction. Supported formats: .txt, .csv");
         }
 
         // Reset subsequent steps
@@ -455,12 +455,10 @@ public class RedactionPanel extends JPanel {
         chooseFileBtn.setEnabled(false);
         scanBtn.setEnabled(false);
 
-        // Run scanning via SwingWorker
         SwingWorker<List<RedactionMatch>, Void> worker = new SwingWorker<>() {
             @Override
             protected List<RedactionMatch> doInBackground() throws Exception {
-                Set<String> enabledPatterns = context.getConfigService().getEnabledPatterns();
-                return context.getRedactionService().scanDocument(selectedFile, enabledPatterns);
+                return context.getDocumentService().scanDocument(selectedFile.toPath());
             }
 
             @Override
@@ -479,46 +477,28 @@ public class RedactionPanel extends JPanel {
                         deselectAllBtn.setEnabled(false);
                         applyRedactionBtn.setEnabled(false);
                         DialogManager.showInfo(RedactionPanel.this, "Scan Complete",
-                                "No sensitive PII, credentials, or sensitive patterns were detected with the current rules.");
-
-                        context.getAuditService().logOperation(
-                                OperationRecord.OperationType.SCAN,
-                                selectedFile.getName(),
-                                OperationRecord.Status.SUCCESS,
-                                "Scan completed with 0 matches found"
-                        );
+                                "No sensitive PII, credentials, or targeted patterns were detected.");
                     } else {
                         for (RedactionMatch m : currentMatches) {
+                            String loc = (m.getRowIndex() >= 0)
+                                    ? "Row " + (m.getRowIndex() + 1) + ", Col " + (m.getColumnIndex() + 1)
+                                    : "Offset " + m.getStartOffset() + "-" + m.getEndOffset();
+
                             candidateTableModel.addRow(new Object[]{
-                                    m.isSelected(),
-                                    m.getId(),
+                                    m.isSelectedForRedaction(),
                                     m.getCandidateType(),
                                     m.getMaskedPreview(),
-                                    m.getLocationDisplay(),
-                                    m.getRuleDescription()
+                                    loc,
+                                    m.getRuleId() + " (" + (int)(m.getConfidence() * 100) + "%)"
                             });
                         }
                         selectAllBtn.setEnabled(true);
                         deselectAllBtn.setEnabled(true);
-                        applyRedactionBtn.setEnabled(true);
                         updateSelectedCount();
-
-                        context.getAuditService().logOperation(
-                                OperationRecord.OperationType.SCAN,
-                                selectedFile.getName(),
-                                OperationRecord.Status.SUCCESS,
-                                "Scan detected " + currentMatches.size() + " sensitive candidate(s)"
-                        );
                     }
                 } catch (Exception ex) {
-                    DialogManager.showError(RedactionPanel.this, "Scan Failed",
-                            "An error occurred while scanning: " + ex.getMessage());
-                    context.getAuditService().logOperation(
-                            OperationRecord.OperationType.SCAN,
-                            selectedFile.getName(),
-                            OperationRecord.Status.FAILED,
-                            "Scan error: " + ex.getMessage()
-                    );
+                    DialogManager.showError(RedactionPanel.this, "Scan Error",
+                            "Failed to scan document: " + ex.getMessage());
                 }
             }
         };
@@ -542,7 +522,7 @@ public class RedactionPanel extends JPanel {
             candidateTableModel.setValueAt(selected, i, 0);
         }
         for (RedactionMatch m : currentMatches) {
-            m.setSelected(selected);
+            m.setSelectedForRedaction(selected);
         }
         updateSelectedCount();
     }
@@ -550,7 +530,7 @@ public class RedactionPanel extends JPanel {
     private void updateSelectedCount() {
         int selectedCount = 0;
         for (RedactionMatch m : currentMatches) {
-            if (m.isSelected()) selectedCount++;
+            if (m.isSelectedForRedaction()) selectedCount++;
         }
         candidateCountLabel.setText(selectedCount + " of " + currentMatches.size() + " selected for redaction");
         applyRedactionBtn.setEnabled(selectedCount > 0);
@@ -567,25 +547,16 @@ public class RedactionPanel extends JPanel {
 
         File outFile = new File(outPath);
         if (outFile.getAbsolutePath().equals(selectedFile.getAbsolutePath())) {
-            DialogManager.showError(this, "Policy Violation",
-                    "Redacted output cannot overwrite the original document. Please choose a distinct filename.");
+            DialogManager.showError(this, "Safety Violation",
+                    "Redacted output cannot overwrite the original source document. Please choose a distinct filename.");
             return;
         }
 
-        // Confirmation step
-        long approvedCount = currentMatches.stream().filter(RedactionMatch::isSelected).count();
+        long approvedCount = currentMatches.stream().filter(RedactionMatch::isSelectedForRedaction).count();
         boolean confirm = DialogManager.showConfirmation(this, "Confirm Redaction",
                 "Apply " + approvedCount + " approved redaction(s) to create:\n" + outFile.getName() +
-                        "\n\nOriginal file will remain untouched.", "Apply Redaction");
-        if (!confirm) {
-            context.getAuditService().logOperation(
-                    OperationRecord.OperationType.REDACT,
-                    selectedFile.getName(),
-                    OperationRecord.Status.CANCELLED,
-                    "Redaction execution cancelled by user"
-            );
-            return;
-        }
+                        "\n\nOriginal file will remain unaltered.", "Apply Redaction");
+        if (!confirm) return;
 
         boolean sign = signOutputCheckBox.isSelected();
         KeyPair signingKeyPair = null;
@@ -595,10 +566,10 @@ public class RedactionPanel extends JPanel {
                 DialogManager.showError(this, "Signing Error", "No RSA key selected for digital signing.");
                 return;
             }
-            signingKeyPair = context.getCryptoService().getKeyPair(selectedAlias);
+            signingKeyPair = context.getSessionKeyPairs().get(selectedAlias);
             if (signingKeyPair == null) {
                 DialogManager.showError(this, "Signing Error",
-                        "The selected key '" + selectedAlias + "' is not available in memory for signing.");
+                        "The selected key '" + selectedAlias + "' is not present in the current session.");
                 return;
             }
         }
@@ -607,16 +578,29 @@ public class RedactionPanel extends JPanel {
         final KeyPair finalKey = signingKeyPair;
 
         SwingWorker<RedactionResult, Void> worker = new SwingWorker<>() {
+            private Path signaturePathCreated = null;
+
             @Override
             protected RedactionResult doInBackground() throws Exception {
-                return context.getRedactionService().applyRedaction(
-                        selectedFile,
-                        outFile,
-                        currentMatches,
-                        sign,
-                        finalKey,
-                        context.getCryptoService()
+                RedactionResult result = context.getDocumentService().applyApprovedRedactions(
+                        selectedFile.toPath(),
+                        outFile.toPath(),
+                        currentMatches
                 );
+
+                if (result.isSuccess() && sign && finalKey != null) {
+                    Path sigFile = context.getDocumentService().getFileStorageService()
+                            .resolveDefaultSignaturePath(outFile.toPath());
+                    context.getSignatureService().signAndSaveDetached(
+                            outFile.toPath(),
+                            finalKey.getPrivate(),
+                            finalKey.getPublic(),
+                            sigFile
+                    );
+                    signaturePathCreated = sigFile;
+                }
+
+                return result;
             }
 
             @Override
@@ -629,42 +613,28 @@ public class RedactionPanel extends JPanel {
                         resultStatusLabel.setText("Status: Redaction Succeeded");
                         resultStatusLabel.setForeground(ThemeManager.SUCCESS_GREEN);
 
-                        resultOutputLocationLabel.setText("Output: " + result.getOutputFilePath());
-                        resultCountLabel.setText("Redactions Applied: " + result.getCandidatesRedacted() +
-                                " entity/entities sanitized");
-                        resultHashesLabel.setText("<html>Original SHA-256: <code>" + result.getOriginalFileSha256() +
-                                "</code><br>Redacted SHA-256: <code>" + result.getRedactedFileSha256() + "</code></html>");
+                        resultOutputLocationLabel.setText("Output: " + result.getOutputPath().toAbsolutePath());
+                        resultCountLabel.setText("Redactions Applied: " + result.getApprovedMatchesApplied() + " candidate(s) sanitized");
+                        resultHashesLabel.setText("<html>Source SHA-256: <code>" + result.getSourceSha256() +
+                                "</code><br>Output SHA-256: <code>" + result.getOutputSha256() + "</code></html>");
 
-                        if (result.isSigned()) {
-                            resultSignatureLabel.setText("Signature: Detached RSA signature created at " + result.getSignaturePath());
+                        if (signaturePathCreated != null) {
+                            resultSignatureLabel.setText("Signature: Detached .zksig created at " + signaturePathCreated.toAbsolutePath());
                             resultSignatureLabel.setForeground(ThemeManager.SUCCESS_GREEN);
                         } else {
                             resultSignatureLabel.setText("Signature: Not digitally signed");
                             resultSignatureLabel.setForeground(ThemeManager.TEXT_SECONDARY);
                         }
 
-                        context.getAuditService().logOperation(
-                                OperationRecord.OperationType.REDACT,
-                                selectedFile.getName(),
-                                OperationRecord.Status.SUCCESS,
-                                "Applied " + result.getCandidatesRedacted() + " redactions -> " + outFile.getName() +
-                                        (result.isSigned() ? " (Digitally Signed)" : "")
-                        );
-
                         DialogManager.showInfo(RedactionPanel.this, "Redaction Complete",
                                 "Sanitized document created successfully at:\n" + outFile.getAbsolutePath() +
-                                        (result.isSigned() ? "\n\nDetached signature generated." : ""));
+                                        (signaturePathCreated != null ? "\n\nDetached signature generated." : ""));
                     } else {
-                        DialogManager.showError(RedactionPanel.this, "Redaction Failed", result.getErrorMessage());
-                        context.getAuditService().logOperation(
-                                OperationRecord.OperationType.REDACT,
-                                selectedFile.getName(),
-                                OperationRecord.Status.FAILED,
-                                "Redaction failed: " + result.getErrorMessage()
-                        );
+                        DialogManager.showError(RedactionPanel.this, "Redaction Failed", result.getSummaryMessage());
                     }
                 } catch (Exception e) {
-                    DialogManager.showError(RedactionPanel.this, "Error", "Execution failed: " + e.getMessage());
+                    DialogManager.showError(RedactionPanel.this, "Execution Error",
+                            "Failed to apply redactions: " + e.getMessage());
                 }
             }
         };
@@ -674,11 +644,9 @@ public class RedactionPanel extends JPanel {
 
     public void refreshKeySelector() {
         keySelectorComboBox.removeAllItems();
-        List<KeyInfo> keys = context.getCryptoService().getAvailableKeyInfos();
-        for (KeyInfo k : keys) {
-            if (k.isPrivateKeyAvailable()) {
-                keySelectorComboBox.addItem(k.getAlias());
-            }
+        Map<String, KeyPair> keys = context.getSessionKeyPairs();
+        for (String alias : keys.keySet()) {
+            keySelectorComboBox.addItem(alias);
         }
         if (keySelectorComboBox.getItemCount() > 0) {
             keySelectorComboBox.setSelectedIndex(0);

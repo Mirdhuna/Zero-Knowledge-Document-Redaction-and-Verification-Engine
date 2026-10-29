@@ -1,28 +1,30 @@
 package com.zeroknowledge.frontend;
 
-import com.zeroknowledge.backend.BackendContext;
-import com.zeroknowledge.model.KeyInfo;
-import com.zeroknowledge.model.OperationRecord;
-
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import javax.swing.table.DefaultTableModel;
 import java.awt.*;
 import java.io.File;
-import java.util.List;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.security.KeyPair;
+import java.security.PublicKey;
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
+import java.util.Map;
 import java.util.function.Consumer;
 
 /**
  * Key Management Workspace:
- * Handles RSA key pair generation, public key inspection, PEM export/import,
- * and key selection for signing operations.
+ * Handles RSA key pair generation, public key inspection, X.509 PEM export/import,
+ * encrypted private-key backup, and signing key selection.
  */
 public class KeyManagementPanel extends JPanel {
 
     private final BackendContext context;
     private final Consumer<String> navigationConsumer;
 
-    // UI Components
     private JTable keyTable;
     private DefaultTableModel keyTableModel;
     private JComboBox<Integer> keySizeComboBox;
@@ -33,9 +35,14 @@ public class KeyManagementPanel extends JPanel {
     private JTextArea publicKeyPreviewArea;
     private JLabel activeKeyAliasLabel;
     private JLabel activeKeyFingerprintLabel;
+    private JLabel activeKeyIdLabel;
     private JButton exportPublicKeyBtn;
+    private JButton backupEncryptedKeyBtn;
     private JButton setActiveKeyBtn;
     private JButton importPublicKeyBtn;
+
+    private static final DateTimeFormatter FORMATTER =
+            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss").withZone(ZoneId.systemDefault());
 
     public KeyManagementPanel(BackendContext context, Consumer<String> navigationConsumer) {
         this.context = context;
@@ -58,9 +65,9 @@ public class KeyManagementPanel extends JPanel {
         contentContainer.add(createHeaderPanel());
         contentContainer.add(Box.createVerticalStrut(16));
 
-        // Key Storage Security Warning Banner
+        // Advisory Banner
         contentContainer.add(ThemeManager.createBanner(
-                "<strong>Cryptographic Key Storage Advisory:</strong> Keys created in this session are held in-memory for signing and verification. Private key contents are never exposed in the interface or exported in plaintext. Store exported public keys securely.",
+                "<strong>Cryptographic Key Protection Policy:</strong> Private keys are held in memory during the session or saved exclusively via authenticated AES-256-GCM encryption with PBKDF2 derivation. Plaintext private keys are never exposed in the interface or exported.",
                 ThemeManager.WARNING_BG,
                 ThemeManager.WARNING_BORDER,
                 ThemeManager.WARNING_AMBER,
@@ -72,7 +79,7 @@ public class KeyManagementPanel extends JPanel {
         contentContainer.add(createGeneratorCard());
         contentContainer.add(Box.createVerticalStrut(16));
 
-        // Keys List & Inspector Card
+        // Key List & Inspector
         contentContainer.add(createKeyInspectorCard());
 
         JScrollPane scroll = new JScrollPane(contentContainer);
@@ -139,12 +146,13 @@ public class KeyManagementPanel extends JPanel {
 
         // Key Size
         gbc.gridx = 2; gbc.gridy = 0; gbc.weightx = 0.0;
-        JLabel sizeLbl = new JLabel("Key Length:");
+        JLabel sizeLbl = new JLabel("Key Size:");
         sizeLbl.setFont(ThemeManager.FONT_SMALL_BOLD);
         form.add(sizeLbl, gbc);
 
         gbc.gridx = 3; gbc.gridy = 0; gbc.weightx = 0.0;
         keySizeComboBox = new JComboBox<>(new Integer[]{2048, 3072, 4096});
+        keySizeComboBox.setSelectedItem(3072);
         keySizeComboBox.setFont(ThemeManager.FONT_SMALL);
         form.add(keySizeComboBox, gbc);
 
@@ -181,14 +189,13 @@ public class KeyManagementPanel extends JPanel {
         top.add(importPublicKeyBtn, BorderLayout.EAST);
         card.add(top, BorderLayout.NORTH);
 
-        // Split pane: Left = Key Table, Right = Details & Public Key PEM
         JSplitPane splitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT);
-        splitPane.setResizeWeight(0.55);
+        splitPane.setResizeWeight(0.52);
         splitPane.setBorder(null);
         splitPane.setOpaque(false);
 
         // Left Table
-        String[] columns = {"Active", "Alias", "Algorithm", "Size", "Created", "Private Key"};
+        String[] columns = {"Active", "Alias", "Key Identifier", "Capabilities"};
         keyTableModel = new DefaultTableModel(columns, 0) {
             @Override
             public boolean isCellEditable(int row, int col) {
@@ -223,11 +230,17 @@ public class KeyManagementPanel extends JPanel {
         activeKeyAliasLabel = new JLabel("Selected: None");
         activeKeyAliasLabel.setFont(ThemeManager.FONT_SUBHEADER);
 
-        activeKeyFingerprintLabel = new JLabel("SHA-256 Fingerprint: -");
+        activeKeyIdLabel = new JLabel("Key ID: -");
+        activeKeyIdLabel.setFont(ThemeManager.FONT_MONO);
+        activeKeyIdLabel.setForeground(ThemeManager.PRIMARY_BLUE);
+
+        activeKeyFingerprintLabel = new JLabel("Full SHA-256 Fingerprint: -");
         activeKeyFingerprintLabel.setFont(ThemeManager.FONT_MONO);
         activeKeyFingerprintLabel.setForeground(ThemeManager.TEXT_SECONDARY);
 
         detailsHeader.add(activeKeyAliasLabel);
+        detailsHeader.add(Box.createVerticalStrut(4));
+        detailsHeader.add(activeKeyIdLabel);
         detailsHeader.add(Box.createVerticalStrut(4));
         detailsHeader.add(activeKeyFingerprintLabel);
         rightPanel.add(detailsHeader, BorderLayout.NORTH);
@@ -245,15 +258,20 @@ public class KeyManagementPanel extends JPanel {
         JPanel btnRow = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
         btnRow.setOpaque(false);
 
-        setActiveKeyBtn = ThemeManager.createSecondaryButton("Set as Active Signing Key");
+        setActiveKeyBtn = ThemeManager.createSecondaryButton("Set Active Signing Key");
         setActiveKeyBtn.setEnabled(false);
         setActiveKeyBtn.addActionListener(e -> handleSetActiveKey());
+
+        backupEncryptedKeyBtn = ThemeManager.createSecondaryButton("Backup Encrypted Key (.zkkey)...");
+        backupEncryptedKeyBtn.setEnabled(false);
+        backupEncryptedKeyBtn.addActionListener(e -> handleBackupEncryptedKey());
 
         exportPublicKeyBtn = ThemeManager.createPrimaryButton("Export Public Key (PEM)...");
         exportPublicKeyBtn.setEnabled(false);
         exportPublicKeyBtn.addActionListener(e -> handleExportPublicKey());
 
         btnRow.add(setActiveKeyBtn);
+        btnRow.add(backupEncryptedKeyBtn);
         btnRow.add(exportPublicKeyBtn);
         rightPanel.add(btnRow, BorderLayout.SOUTH);
 
@@ -274,16 +292,16 @@ public class KeyManagementPanel extends JPanel {
 
         boolean confirm = DialogManager.showConfirmation(this, "Confirm Key Generation",
                 "Generate a new " + keySize + "-bit RSA key pair with alias '" + alias + "'?\n" +
-                        "This will initialize a new in-memory cryptographic signing key.", "Generate");
+                        "This identity will be available for detached document signing.", "Generate Key");
         if (!confirm) return;
 
         generateKeyBtn.setEnabled(false);
         keyGenProgressBar.setVisible(true);
 
-        SwingWorker<KeyInfo, Void> worker = new SwingWorker<>() {
+        SwingWorker<KeyPair, Void> worker = new SwingWorker<>() {
             @Override
-            protected KeyInfo doInBackground() throws Exception {
-                return context.getCryptoService().generateKeyPair(keySize, alias);
+            protected KeyPair doInBackground() throws Exception {
+                return context.getKeyManager().generateKeyPair(keySize);
             }
 
             @Override
@@ -292,30 +310,15 @@ public class KeyManagementPanel extends JPanel {
                 keyGenProgressBar.setVisible(false);
 
                 try {
-                    KeyInfo info = get();
+                    KeyPair kp = get();
+                    context.registerKeyPair(alias, kp);
                     refreshKeyTable();
-                    displayKeyDetails(info.getAlias());
-
-                    context.getAuditService().logOperation(
-                            OperationRecord.OperationType.KEY_GENERATION,
-                            alias,
-                            OperationRecord.Status.SUCCESS,
-                            "Generated RSA " + keySize + "-bit key. Fingerprint: " +
-                                    (info.getFingerprintSha256().length() > 16 ?
-                                            info.getFingerprintSha256().substring(0, 16) + "..." : info.getFingerprintSha256())
-                    );
-
+                    displayKeyDetails(alias);
                     DialogManager.showInfo(KeyManagementPanel.this, "Key Generated",
-                            "RSA " + keySize + "-bit key pair '" + alias + "' created successfully.");
+                            "RSA " + keySize + "-bit key pair '" + alias + "' generated successfully.");
                 } catch (Exception ex) {
-                    DialogManager.showError(KeyManagementPanel.this, "Generation Failed",
-                            "Failed to generate RSA key: " + ex.getMessage());
-                    context.getAuditService().logOperation(
-                            OperationRecord.OperationType.KEY_GENERATION,
-                            alias,
-                            OperationRecord.Status.FAILED,
-                            "Error: " + ex.getMessage()
-                    );
+                    DialogManager.showError(KeyManagementPanel.this, "Generation Error",
+                            "Failed to generate key pair: " + ex.getMessage());
                 }
             }
         };
@@ -329,17 +332,13 @@ public class KeyManagementPanel extends JPanel {
         if (chooser.showOpenDialog(this) == JFileChooser.APPROVE_OPTION) {
             File keyFile = chooser.getSelectedFile();
             try {
-                context.getCryptoService().loadPublicKeyFromPemFile(keyFile);
+                PublicKey pk = context.getKeyManager().loadPublicKey(keyFile.toPath());
+                String alias = keyFile.getName().replace(".pem", "").replace(".pub", "");
+                context.registerPublicKey(alias, pk);
                 refreshKeyTable();
-                context.getAuditService().logOperation(
-                        OperationRecord.OperationType.KEY_IMPORT,
-                        keyFile.getName(),
-                        OperationRecord.Status.SUCCESS,
-                        "Imported public key from " + keyFile.getAbsolutePath()
-                );
                 DialogManager.showInfo(this, "Key Imported", "Public key imported successfully from:\n" + keyFile.getName());
             } catch (Exception ex) {
-                DialogManager.showError(this, "Import Error", "Failed to import public key: " + ex.getMessage());
+                DialogManager.showError(this, "Import Error", "Failed to parse public key: " + ex.getMessage());
             }
         }
     }
@@ -348,28 +347,15 @@ public class KeyManagementPanel extends JPanel {
         int row = keyTable.getSelectedRow();
         if (row < 0) return;
         String alias = (String) keyTableModel.getValueAt(row, 1);
-        KeyInfo info = context.getCryptoService().getKeyInfo(alias);
-        if (info == null) return;
+        PublicKey pk = context.getKnownPublicKeys().get(alias);
+        if (pk == null) return;
 
         JFileChooser chooser = new JFileChooser();
         chooser.setSelectedFile(new File(alias + "_public_key.pem"));
         if (chooser.showSaveDialog(this) == JFileChooser.APPROVE_OPTION) {
             File dest = chooser.getSelectedFile();
             try {
-                var kp = context.getCryptoService().getKeyPair(alias);
-                if (kp != null) {
-                    context.getCryptoService().exportPublicKeyToPemFile(kp.getPublic(), dest);
-                } else {
-                    java.nio.file.Files.writeString(dest.toPath(), info.getPublicKeyPem());
-                }
-
-                context.getAuditService().logOperation(
-                        OperationRecord.OperationType.KEY_EXPORT,
-                        alias,
-                        OperationRecord.Status.SUCCESS,
-                        "Exported public key to " + dest.getAbsolutePath()
-                );
-
+                context.getKeyManager().exportPublicKey(pk, dest.toPath());
                 DialogManager.showInfo(this, "Export Succeeded",
                         "Public key exported in X.509 PEM format to:\n" + dest.getAbsolutePath());
             } catch (Exception ex) {
@@ -378,48 +364,106 @@ public class KeyManagementPanel extends JPanel {
         }
     }
 
+    private void handleBackupEncryptedKey() {
+        int row = keyTable.getSelectedRow();
+        if (row < 0) return;
+        String alias = (String) keyTableModel.getValueAt(row, 1);
+        KeyPair kp = context.getSessionKeyPairs().get(alias);
+        if (kp == null) {
+            DialogManager.showWarning(this, "Unavailable", "Only keys with in-memory private keys can be encrypted and backed up.");
+            return;
+        }
+
+        JPasswordField pwd = new JPasswordField(16);
+        int opt = JOptionPane.showConfirmDialog(this, pwd, "Enter Passphrase for Encrypted Private-Key Backup (AES-256-GCM):",
+                JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
+        if (opt != JOptionPane.OK_OPTION || pwd.getPassword().length == 0) {
+            return;
+        }
+
+        JFileChooser chooser = new JFileChooser();
+        chooser.setSelectedFile(new File(alias + ".zkkey"));
+        if (chooser.showSaveDialog(this) == JFileChooser.APPROVE_OPTION) {
+            File dest = chooser.getSelectedFile();
+            try {
+                context.getKeyManager().saveEncryptedPrivateKey(
+                        kp.getPrivate(),
+                        kp.getPublic(),
+                        pwd.getPassword(),
+                        dest.toPath()
+                );
+                DialogManager.showInfo(this, "Backup Complete",
+                        "Encrypted private key written to:\n" + dest.getAbsolutePath());
+            } catch (Exception ex) {
+                DialogManager.showError(this, "Backup Failed", "Failed to encrypt and save private key: " + ex.getMessage());
+            }
+        }
+    }
+
     private void handleSetActiveKey() {
         int row = keyTable.getSelectedRow();
         if (row < 0) return;
         String alias = (String) keyTableModel.getValueAt(row, 1);
-        KeyInfo info = context.getCryptoService().getKeyInfo(alias);
-        if (info != null && info.isPrivateKeyAvailable()) {
-            context.getCryptoService().setSelectedAlias(alias);
+        if (context.getSessionKeyPairs().containsKey(alias)) {
+            context.setActiveKeyAlias(alias);
             refreshKeyTable();
             displayKeyDetails(alias);
-            DialogManager.showInfo(this, "Active Key Set", "Active signing key updated to: " + alias);
+            DialogManager.showInfo(this, "Active Key Updated", "Active signing key updated to: " + alias);
         } else {
-            DialogManager.showWarning(this, "Unavailable Key",
-                    "This key only contains a public key and cannot be used for signing documents.");
+            DialogManager.showWarning(this, "Signing Unavailable",
+                    "This identity only has a public key and cannot be used for signing.");
         }
     }
 
     private void displayKeyDetails(String alias) {
-        KeyInfo info = context.getCryptoService().getKeyInfo(alias);
-        if (info == null) return;
+        PublicKey pk = context.getKnownPublicKeys().get(alias);
+        if (pk == null) return;
 
-        activeKeyAliasLabel.setText("Selected Key: " + info.getAlias() + " (" + info.getKeySizeBits() + "-bit " + info.getAlgorithm() + ")");
-        activeKeyFingerprintLabel.setText("SHA-256 Fingerprint: " + info.getFingerprintSha256());
-        publicKeyPreviewArea.setText(info.getPublicKeyPem());
+        try {
+            String keyId = context.getKeyManager().getKeyIdentifier(pk);
+            String fingerprint = context.getKeyManager().getFullKeyFingerprint(pk);
 
-        exportPublicKeyBtn.setEnabled(true);
-        setActiveKeyBtn.setEnabled(info.isPrivateKeyAvailable());
+            activeKeyAliasLabel.setText("Selected: " + alias);
+            activeKeyIdLabel.setText("Key ID: " + keyId);
+            activeKeyFingerprintLabel.setText("Full SHA-256 Fingerprint: " + fingerprint);
+
+            // Generate PEM string
+            java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
+            Path temp = Files.createTempFile("pem_preview", ".pem");
+            context.getKeyManager().exportPublicKey(pk, temp);
+            String pem = Files.readString(temp);
+            Files.deleteIfExists(temp);
+            publicKeyPreviewArea.setText(pem);
+
+            exportPublicKeyBtn.setEnabled(true);
+            boolean hasPriv = context.getSessionKeyPairs().containsKey(alias);
+            setActiveKeyBtn.setEnabled(hasPriv);
+            backupEncryptedKeyBtn.setEnabled(hasPriv);
+        } catch (Exception e) {
+            publicKeyPreviewArea.setText("Error reading key details: " + e.getMessage());
+        }
     }
 
     public void refreshKeyTable() {
         keyTableModel.setRowCount(0);
-        List<KeyInfo> keys = context.getCryptoService().getAvailableKeyInfos();
-        String active = context.getCryptoService().getSelectedAlias();
+        Map<String, PublicKey> keys = context.getKnownPublicKeys();
+        String active = context.getActiveKeyAlias();
 
-        for (KeyInfo k : keys) {
-            boolean isActive = k.getAlias().equals(active);
+        for (String alias : keys.keySet()) {
+            boolean isActive = alias.equals(active);
+            boolean hasPrivate = context.getSessionKeyPairs().containsKey(alias);
+            PublicKey pk = keys.get(alias);
+
+            String keyId = "-";
+            try {
+                keyId = context.getKeyManager().getKeyIdentifier(pk);
+            } catch (Exception ignored) {}
+
             keyTableModel.addRow(new Object[]{
                     isActive ? "★ Active" : "",
-                    k.getAlias(),
-                    k.getAlgorithm(),
-                    k.getKeySizeBits() + "-bit",
-                    k.getFormattedCreatedAt(),
-                    k.isPrivateKeyAvailable() ? "In-Memory (Signing Ready)" : "Public Key Only"
+                    alias,
+                    keyId,
+                    hasPrivate ? "Signing + Verification" : "Verification Only"
             });
         }
 
