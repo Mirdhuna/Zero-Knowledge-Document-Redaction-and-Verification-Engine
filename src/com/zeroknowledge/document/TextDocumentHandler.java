@@ -6,6 +6,7 @@ import com.zeroknowledge.exception.DocumentProcessingException;
 import com.zeroknowledge.exception.RedactionException;
 import com.zeroknowledge.model.RedactionMatch;
 import com.zeroknowledge.model.RedactionResult;
+import com.zeroknowledge.model.RedactionResult.VerificationStatus;
 import com.zeroknowledge.storage.FileStorageService;
 import java.nio.file.Path;
 import java.time.Instant;
@@ -81,11 +82,30 @@ public final class TextDocumentHandler implements DocumentHandler {
 
         Path savedPath = fileStorageService.writeRedactedUtf8Safely(sourcePath, targetOutput, redactedText, true);
 
-        // Post-save verification: reload saved output and verify exact match
+        // Post-save verification: reload saved output and verify exact match and absence of redacted secrets
         String reloadedText = fileStorageService.readUtf8Text(savedPath);
         if (!reloadedText.equals(redactedText)) {
             throw new RedactionException("Post-save verification failed: saved text does not match expected redacted content");
         }
+        for (String secret : originalSensitiveSubstrings) {
+            if (!secret.isBlank() && reloadedText.contains(secret)) {
+                throw new RedactionException("Post-save verification failed: sensitive substring remained in output TXT file");
+            }
+        }
+
+        int totalCandidates = candidates.size();
+        int selectedCount = originalSensitiveSubstrings.size();
+        int appliedCount = resolved.getAppliedMatches().size();
+        int skippedCount = Math.max(0, totalCandidates - selectedCount);
+        VerificationStatus vStatus = (skippedCount > 0) ? VerificationStatus.PARTIAL : VerificationStatus.VERIFIED;
+        String vReport = "Verification Status: " + vStatus.name()
+                + ". Reopened saved TXT file and verified all " + appliedCount
+                + " redacted span(s) were permanently removed."
+                + (skippedCount > 0 ? " (" + skippedCount + " candidate(s) skipped by user selection.) " : " ")
+                + RedactionResult.VERIFICATION_DISCLAIMER;
+        List<String> vWarnings = (skippedCount > 0)
+                ? List.of(skippedCount + " candidate(s) were deselected/skipped and remain in the document.")
+                : List.of();
 
         String sourceHash = hashService.calculateSha256(sourcePath);
         String outputHash = hashService.calculateSha256(savedPath);
@@ -97,12 +117,18 @@ public final class TextDocumentHandler implements DocumentHandler {
                 savedPath,
                 sourceHash,
                 outputHash,
-                candidates.size(),
-                resolved.getAppliedMatches().size(),
+                totalCandidates,
+                selectedCount,
+                appliedCount,
+                skippedCount,
+                0,
                 resolved.getAppliedMatches(),
+                vStatus,
+                vReport,
+                vWarnings,
                 Instant.now(),
-                "Successfully applied " + resolved.getAppliedMatches().size()
-                        + " user-approved redaction(s) to TXT document (" + originalSensitiveSubstrings.size()
-                        + " selected candidate(s) resolved).");
+                "Successfully applied " + appliedCount
+                        + " user-approved redaction(s) to TXT document (" + selectedCount
+                        + " selected, " + skippedCount + " skipped). Verification: " + vStatus.name() + ".");
     }
 }

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ==============================================================================
 # Zero-Knowledge Document Redaction and Verification Engine
-# Build & Launch Script (Linux / macOS)
+# Build, Test & Launch Script (Linux / macOS - Java 21)
 # ==============================================================================
 set -e
 
@@ -20,9 +20,17 @@ fi
 JAVA_VER=$(javac -version 2>&1 | awk '{print $2}' | cut -d'.' -f1)
 echo "Detected Java Compiler version: $JAVA_VER"
 
-echo "Compiling Java source files..."
+echo "Compiling Java 21 source files..."
 mkdir -p out
-javac -d out $(find src core -name "*.java")
+javac -encoding UTF-8 -d out $(find src core test -name "*.java")
 
-echo "Starting Application on Event Dispatch Thread..."
+if [ "${1:-}" = "--test" ]; then
+    echo "Running Backend, OCR, PDF Redaction & Integration Test Suites..."
+    java -cp out com.zeroknowledge.app.Main
+    java -cp out test.IntegrationTest
+    java -cp out test.GuiHeadlessTest
+    exit 0
+fi
+
+echo "Starting Desktop Application on Event Dispatch Thread..."
 java -cp out com.zeroknowledge.frontend.MainFrame "$@"

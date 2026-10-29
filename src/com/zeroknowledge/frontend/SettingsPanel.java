@@ -1,18 +1,22 @@
 package com.zeroknowledge.frontend;
 
 import com.zeroknowledge.backend.AccessControlService;
+import com.zeroknowledge.document.OcrEngine.OcrAvailability;
+import com.zeroknowledge.document.TesseractOcrEngine;
 import com.zeroknowledge.storage.ApplicationConfig;
 
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import java.awt.*;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.List;
 import java.util.function.Consumer;
 
 /**
  * Settings and Documentation Workspace:
- * Displays engine operational parameters, active RBAC role selection,
- * and provides educational documentation on cryptographic definitions.
+ * Displays engine operational parameters, local Tesseract OCR configuration,
+ * active RBAC role selection, and educational documentation on cryptographic definitions.
  */
 public class SettingsPanel extends JPanel {
 
@@ -20,6 +24,11 @@ public class SettingsPanel extends JPanel {
     private final Consumer<String> navigationConsumer;
 
     private JComboBox<AccessControlService.Role> roleComboBox;
+    private JTextField tesseractPathField;
+    private JTextField tessdataDirField;
+    private JTextField ocrLangField;
+    private JTextField ocrDpiField;
+    private JLabel ocrStatusTestLabel;
 
     public SettingsPanel(BackendContext context, Consumer<String> navigationConsumer) {
         this.context = context;
@@ -43,6 +52,10 @@ public class SettingsPanel extends JPanel {
 
         // Engine Configuration Card
         contentContainer.add(createConfigCard());
+        contentContainer.add(Box.createVerticalStrut(16));
+
+        // Local OCR Configuration Card
+        contentContainer.add(createOcrConfigCard());
         contentContainer.add(Box.createVerticalStrut(16));
 
         // Access Control Card
@@ -77,7 +90,7 @@ public class SettingsPanel extends JPanel {
         title.setFont(ThemeManager.FONT_TITLE);
         title.setForeground(ThemeManager.TEXT_PRIMARY);
 
-        JLabel desc = new JLabel("Review engine parameters, manage RBAC permissions, and review cryptographic definitions.");
+        JLabel desc = new JLabel("Configure local Tesseract OCR parameters, manage RBAC permissions, and review detection & cryptographic rules.");
         desc.setFont(ThemeManager.FONT_REGULAR);
         desc.setForeground(ThemeManager.TEXT_SECONDARY);
 
@@ -115,6 +128,110 @@ public class SettingsPanel extends JPanel {
 
         card.add(grid, BorderLayout.CENTER);
         return card;
+    }
+
+    private JPanel createOcrConfigCard() {
+        JPanel card = ThemeManager.createCardPanel();
+        card.setLayout(new BorderLayout(0, 12));
+
+        JLabel title = new JLabel("Local Tesseract OCR Configuration (Zero External Uploads)");
+        title.setFont(ThemeManager.FONT_HEADER);
+        title.setForeground(ThemeManager.TEXT_PRIMARY);
+        card.add(title, BorderLayout.NORTH);
+
+        ApplicationConfig cfg = context.getApplicationConfig();
+
+        JPanel form = new JPanel(new GridBagLayout());
+        form.setOpaque(false);
+        GridBagConstraints gbc = new GridBagConstraints();
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        gbc.insets = new Insets(6, 6, 6, 6);
+
+        gbc.gridx = 0; gbc.gridy = 0; gbc.weightx = 0.0;
+        form.add(new JLabel("Tesseract Executable:"), gbc);
+        gbc.gridx = 1; gbc.gridy = 0; gbc.weightx = 1.0;
+        tesseractPathField = ThemeManager.createTextField();
+        tesseractPathField.setText(cfg.getTesseractExecutablePath());
+        form.add(tesseractPathField, gbc);
+
+        gbc.gridx = 0; gbc.gridy = 1; gbc.weightx = 0.0;
+        form.add(new JLabel("Tessdata Directory (Optional):"), gbc);
+        gbc.gridx = 1; gbc.gridy = 1; gbc.weightx = 1.0;
+        tessdataDirField = ThemeManager.createTextField();
+        tessdataDirField.setText(cfg.getTessdataDirectory() != null ? cfg.getTessdataDirectory().toString() : "");
+        form.add(tessdataDirField, gbc);
+
+        gbc.gridx = 0; gbc.gridy = 2; gbc.weightx = 0.0;
+        form.add(new JLabel("OCR Language Code (e.g. eng):"), gbc);
+        gbc.gridx = 1; gbc.gridy = 2; gbc.weightx = 1.0;
+        ocrLangField = ThemeManager.createTextField();
+        ocrLangField.setText(cfg.getOcrLanguage());
+        form.add(ocrLangField, gbc);
+
+        gbc.gridx = 0; gbc.gridy = 3; gbc.weightx = 0.0;
+        form.add(new JLabel("Scan Render Resolution (DPI):"), gbc);
+        gbc.gridx = 1; gbc.gridy = 3; gbc.weightx = 1.0;
+        ocrDpiField = ThemeManager.createTextField();
+        ocrDpiField.setText(String.valueOf(cfg.getOcrRenderDpi()));
+        form.add(ocrDpiField, gbc);
+
+        ocrStatusTestLabel = new JLabel("Click 'Apply & Test OCR' to verify local Tesseract installation.");
+        ocrStatusTestLabel.setFont(ThemeManager.FONT_SMALL);
+        ocrStatusTestLabel.setForeground(ThemeManager.TEXT_SECONDARY);
+
+        JPanel btnRow = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 0));
+        btnRow.setOpaque(false);
+
+        JButton setupGuideBtn = ThemeManager.createSecondaryButton("Setup Instructions");
+        setupGuideBtn.addActionListener(e -> {
+            String instructions = TesseractOcrEngine.SETUP_INSTRUCTIONS;
+            JTextArea area = new JTextArea(instructions, 16, 60);
+            area.setEditable(false);
+            area.setFont(ThemeManager.FONT_MONO);
+            JOptionPane.showMessageDialog(this, new JScrollPane(area), "Local Tesseract OCR Setup", JOptionPane.INFORMATION_MESSAGE);
+        });
+
+        JButton applyOcrBtn = ThemeManager.createPrimaryButton("Apply & Test OCR Engine");
+        applyOcrBtn.addActionListener(e -> handleApplyAndTestOcr());
+
+        btnRow.add(setupGuideBtn);
+        btnRow.add(applyOcrBtn);
+
+        JPanel southPanel = new JPanel(new BorderLayout(8, 6));
+        southPanel.setOpaque(false);
+        southPanel.add(ocrStatusTestLabel, BorderLayout.WEST);
+        southPanel.add(btnRow, BorderLayout.EAST);
+
+        card.add(form, BorderLayout.CENTER);
+        card.add(southPanel, BorderLayout.SOUTH);
+        return card;
+    }
+
+    private void handleApplyAndTestOcr() {
+        try {
+            String exec = tesseractPathField.getText().trim();
+            String tessDirStr = tessdataDirField.getText().trim();
+            Path tessDir = tessDirStr.isEmpty() ? null : Paths.get(tessDirStr);
+            String lang = ocrLangField.getText().trim().isEmpty() ? "eng" : ocrLangField.getText().trim();
+            int dpi = Integer.parseInt(ocrDpiField.getText().trim());
+
+            context.updateOcrSettings(exec, tessDir, lang, dpi, context.getApplicationConfig().getMinOcrConfidence());
+            TesseractOcrEngine engine = new TesseractOcrEngine(context.getApplicationConfig());
+            OcrAvailability avail = engine.checkAvailability();
+
+            if (avail.isAvailable()) {
+                ocrStatusTestLabel.setText("✓ " + avail.getStatusMessage());
+                ocrStatusTestLabel.setForeground(ThemeManager.SUCCESS_GREEN);
+                DialogManager.showInfo(this, "OCR Engine Ready", avail.getStatusMessage());
+            } else {
+                ocrStatusTestLabel.setText("⚠ " + avail.getStatusMessage());
+                ocrStatusTestLabel.setForeground(ThemeManager.WARNING_AMBER);
+                DialogManager.showWarning(this, "OCR Unavailable",
+                        avail.getStatusMessage() + "<br><br>Click <b>Setup Instructions</b> for installation details.");
+            }
+        } catch (Exception ex) {
+            DialogManager.showError(this, "Invalid OCR Configuration", "Please check OCR settings: " + ex.getMessage());
+        }
     }
 
     private JPanel createRbacCard() {
@@ -160,7 +277,7 @@ public class SettingsPanel extends JPanel {
         JPanel card = ThemeManager.createCardPanel();
         card.setLayout(new BorderLayout(0, 12));
 
-        JLabel title = new JLabel("Registered Sensitive-Data Detection Rules");
+        JLabel title = new JLabel("Registered Context-Aware Sensitive-Data Detection Rules");
         title.setFont(ThemeManager.FONT_HEADER);
         title.setForeground(ThemeManager.TEXT_PRIMARY);
         card.add(title, BorderLayout.NORTH);
@@ -181,7 +298,7 @@ public class SettingsPanel extends JPanel {
             typeLbl.setFont(ThemeManager.FONT_REGULAR_BOLD);
             typeLbl.setForeground(ThemeManager.TEXT_PRIMARY);
 
-            JLabel confLbl = new JLabel("Confidence: " + (int)(r.getConfidence() * 100) + "%  |  Token: " + r.getReplacementToken());
+            JLabel confLbl = new JLabel("Confidence: " + (int) (r.getConfidence() * 100) + "%  |  Token: " + r.getReplacementToken());
             confLbl.setFont(ThemeManager.FONT_SMALL);
             confLbl.setForeground(ThemeManager.TEXT_SECONDARY);
 
@@ -198,33 +315,33 @@ public class SettingsPanel extends JPanel {
         JPanel card = ThemeManager.createCardPanel();
         card.setLayout(new BoxLayout(card, BoxLayout.Y_AXIS));
 
-        JLabel title = new JLabel("Cryptographic Security Foundations");
+        JLabel title = new JLabel("Cryptographic & Redaction Security Foundations");
         title.setFont(ThemeManager.FONT_HEADER);
         title.setForeground(ThemeManager.TEXT_PRIMARY);
         card.add(title);
         card.add(Box.createVerticalStrut(14));
 
         card.add(createConceptBlock(
-                "1. Document Redaction (PDF, TXT & CSV)",
-                "Irreversible sanitization of identified sensitive character spans prior to document export. Underlying text bytes inside decompressed PDF streams, plain text, and CSV cells are completely substituted with replacement tokens, and xref tables are rebuilt with exact byte offsets."
+                "1. Permanent Native & Image PDF Redaction",
+                "For native PDF text, sensitive characters are physically excised from decompressed Tj/TJ content streams (replacing deleted glyph widths with negative TJ kerning shifts so surrounding layout is preserved) and covered with opaque black rectangles. For scanned image pages, opaque black pixels are burned directly into the raster image and the PDF Image XObject stream is replaced so the original unredacted image is never retained."
         ));
         card.add(Box.createVerticalStrut(12));
 
         card.add(createConceptBlock(
-                "2. Streaming Cryptographic Hashing (SHA-256)",
-                "A one-way deterministic mathematical function that produces a 256-bit digest over the exact byte stream of a file. Any bit modification results in a completely different digest."
+                "2. Independent Post-Redaction Verification",
+                "After saving a redacted PDF, the engine reopens the output file from disk, re-extracts all text streams, and inspects target image pixel regions to verify that redacted values are no longer extractable or visible. Automated checks substantially reduce risk but cannot mathematically prove the absence of every possible disclosure."
         ));
         card.add(Box.createVerticalStrut(12));
 
         card.add(createConceptBlock(
-                "3. Detached Digital Signatures (SHA256withRSA)",
-                "Signing computes a digital signature over the exact document bytes using a private key. The resulting .zksig file is stored alongside the document, allowing verification against a trusted public key without modifying the source."
+                "3. Streaming Cryptographic Hashing (SHA-256) & Detached Signatures (SHA256withRSA)",
+                "Every redacted output file receives a fresh SHA-256 digest and a new detached .zksig RSA signature. Original document signatures are never reused for modified outputs."
         ));
         card.add(Box.createVerticalStrut(12));
 
         card.add(createConceptBlock(
                 "4. Honest Disclosure: Zero-Knowledge Distinction",
-                "SHA-256 digests and RSA digital signatures alone do NOT constitute a Zero-Knowledge Proof (ZKP). A true ZKP mathematically proves a specific computational assertion (e.g. zk-SNARK) without revealing underlying inputs. In this engine, redaction ensures data privacy while detached RSA signatures prove document integrity and authenticity."
+                "SHA-256 digests and RSA digital signatures alone do NOT constitute a Zero-Knowledge Proof (ZKP). In this engine, permanent content excision ensures data privacy while detached RSA signatures prove document integrity and authenticity."
         ));
 
         return card;

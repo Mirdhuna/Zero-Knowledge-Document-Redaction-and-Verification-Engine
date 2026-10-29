@@ -7,7 +7,11 @@ import com.zeroknowledge.document.PdfDocumentHandler;
 import com.zeroknowledge.exception.DocumentProcessingException;
 import com.zeroknowledge.exception.RedactionException;
 import com.zeroknowledge.model.DocumentMetadata;
+import com.zeroknowledge.model.DocumentScanReport;
+import com.zeroknowledge.model.DocumentScanReport.ScanOutcome;
 import com.zeroknowledge.model.OperationRecord.OperationType;
+import com.zeroknowledge.model.PageExtractionReport;
+import com.zeroknowledge.model.PageExtractionReport.PageStatus;
 import com.zeroknowledge.model.RedactionMatch;
 import com.zeroknowledge.model.RedactionResult;
 import com.zeroknowledge.storage.ApplicationConfig;
@@ -28,6 +32,7 @@ public final class DocumentService {
     private final RedactionService redactionService;
     private final AccessControlService accessControlService;
     private final AuditService auditService;
+    private volatile DocumentScanReport lastScanReport;
 
     public DocumentService(
             FileStorageService fileStorageService,
@@ -52,12 +57,12 @@ public final class DocumentService {
         this.accessControlService = new AccessControlService(AccessControlService.Role.SECURITY_ADMINISTRATOR, auditService);
         this.fileStorageService = new FileStorageService(config, hashService);
         this.sensitiveDataDetector = new SensitiveDataDetector();
-        this.redactionService = new RedactionService(fileStorageService, hashService, accessControlService, auditService);
+        this.redactionService = new RedactionService(fileStorageService, hashService, accessControlService, auditService, config);
     }
 
     /**
      * Inspects a file on disk and returns its {@link DocumentMetadata} (format, size, SHA-256 hash, timestamp).
-     * For PDF files, also validates the {@code %PDF-} header.
+     * For PDF files, also validates the {@code %PDF-} header and structural integrity.
      */
     public DocumentMetadata inspectDocument(Path filePath) throws DocumentProcessingException {
         accessControlService.requirePermission(AccessControlService.Permission.CALCULATE_HASH);
@@ -72,14 +77,10 @@ public final class DocumentService {
     }
 
     /**
-     * Scans a selected document and returns candidate {@link RedactionMatch} items for user review.
-     * Candidates are returned with {@code selectedForRedaction = false} so nothing is redacted without user approval.
-     *
-     * @param sourcePath path to the {@code .txt} or {@code .csv} file
-     * @return unmodifiable list of detected candidates
-     * @throws DocumentProcessingException if the file is unreadable, malformed, or is a PDF/unsupported format
+     * Scans a document and returns a detailed {@link DocumentScanReport} including per-page native/OCR
+     * extraction status, OCR availability diagnostics, and detected {@link RedactionMatch} candidates.
      */
-    public List<RedactionMatch> scanDocument(Path sourcePath) throws DocumentProcessingException {
+    public DocumentScanReport scanDocumentWithReport(Path sourcePath) throws DocumentProcessingException {
         accessControlService.requirePermission(AccessControlService.Permission.SCAN_DOCUMENT);
         if (sourcePath == null) {
             throw new DocumentProcessingException("Document path must not be null");
@@ -94,20 +95,86 @@ public final class DocumentService {
 
         DocumentHandler handler = redactionService.getHandler(format);
         try {
+            if (format == DocumentFormat.PDF && handler instanceof PdfDocumentHandler pdf) {
+                DocumentScanReport report = pdf.scanWithReport(sourcePath, sensitiveDataDetector);
+                this.lastScanReport = report;
+                if (report.getOutcome() == ScanOutcome.EXTRACTION_FAILED) {
+                    auditService.record(OperationType.DOCUMENT_SCAN, fileName, false, report.getSummaryMessage());
+                    throw new DocumentProcessingException(report.getSummaryMessage());
+                }
+                auditService.record(
+                        OperationType.DOCUMENT_SCAN,
+                        fileName,
+                        true,
+                        "Scan completed for PDF (" + report.getOutcome().name()
+                                + ", pages=" + report.getTotalPages()
+                                + ", failedPages=" + report.getPagesFailed()
+                                + ", candidatesFound=" + report.getMatches().size() + ")");
+                return report;
+            }
+
             List<RedactionMatch> matches = handler.scan(sourcePath, sensitiveDataDetector);
+            String rawContent = handler.readValidatedContent(sourcePath);
+            PageExtractionReport singlePage = new PageExtractionReport(
+                    1,
+                    rawContent.isEmpty() ? PageStatus.EMPTY_PAGE : PageStatus.NATIVE_TEXT_EXTRACTED,
+                    !rawContent.isEmpty(),
+                    false,
+                    false,
+                    false,
+                    1.0,
+                    rawContent.length(),
+                    0,
+                    612.0,
+                    792.0,
+                    format.name() + " content extracted (" + rawContent.length() + " chars).");
+            ScanOutcome outcome = matches.isEmpty() ? ScanOutcome.SUCCESS_NO_MATCHES : ScanOutcome.SUCCESS_WITH_MATCHES;
+            String summary = matches.isEmpty()
+                    ? "Extracted " + format.name() + " document successfully. No sensitive content found."
+                    : "Extracted " + format.name() + " document and detected " + matches.size() + " sensitive item(s).";
+
+            DocumentScanReport report = new DocumentScanReport(
+                    sourcePath.toAbsolutePath().normalize(),
+                    format,
+                    outcome,
+                    1,
+                    1,
+                    0,
+                    rawContent.isEmpty() ? 0 : 1,
+                    0,
+                    rawContent.isEmpty() ? 1 : 0,
+                    true,
+                    "Native text format (" + format.name() + ")",
+                    List.of(singlePage),
+                    matches,
+                    summary);
+            this.lastScanReport = report;
             auditService.record(
                     OperationType.DOCUMENT_SCAN,
                     fileName,
                     true,
                     "Scan completed for " + format.name() + "; candidatesFound=" + matches.size());
-            return matches;
+            return report;
         } catch (DocumentProcessingException e) {
-            OperationType opType = (format == DocumentFormat.PDF)
-                    ? OperationType.UNSUPPORTED_PDF_OPERATION
-                    : OperationType.DOCUMENT_SCAN;
-            auditService.record(opType, fileName, false, e.getMessage());
+            auditService.record(OperationType.DOCUMENT_SCAN, fileName, false, e.getMessage());
             throw e;
         }
+    }
+
+    /**
+     * Scans a selected document and returns candidate {@link RedactionMatch} items for user review.
+     * Candidates are returned with {@code selectedForRedaction = false} so nothing is redacted without user approval.
+     */
+    public List<RedactionMatch> scanDocument(Path sourcePath) throws DocumentProcessingException {
+        return scanDocumentWithReport(sourcePath).getMatches();
+    }
+
+    /**
+     * Returns the most recent {@link DocumentScanReport} produced by {@link #scanDocument(Path)}
+     * or {@link #scanDocumentWithReport(Path)}.
+     */
+    public DocumentScanReport getLastScanReport() {
+        return lastScanReport;
     }
 
     /**
@@ -165,6 +232,10 @@ public final class DocumentService {
 
     public SensitiveDataDetector getSensitiveDataDetector() {
         return sensitiveDataDetector;
+    }
+
+    public RedactionService getRedactionService() {
+        return redactionService;
     }
 
     public FileStorageService getFileStorageService() {

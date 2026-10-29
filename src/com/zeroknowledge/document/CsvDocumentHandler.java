@@ -6,6 +6,7 @@ import com.zeroknowledge.exception.DocumentProcessingException;
 import com.zeroknowledge.exception.RedactionException;
 import com.zeroknowledge.model.RedactionMatch;
 import com.zeroknowledge.model.RedactionResult;
+import com.zeroknowledge.model.RedactionResult.VerificationStatus;
 import com.zeroknowledge.storage.FileStorageService;
 import java.nio.file.Path;
 import java.time.Instant;
@@ -176,6 +177,20 @@ public final class CsvDocumentHandler implements DocumentHandler {
         String sourceHash = hashService.calculateSha256(normalizedSource);
         String outputHash = hashService.calculateSha256(savedPath);
 
+        int totalCandidates = candidates.size();
+        int selectedCount = (int) candidates.stream().filter(m -> m != null && m.isSelectedForRedaction()).count();
+        int appliedCount = allApplied.size();
+        int skippedCount = Math.max(0, totalCandidates - selectedCount);
+        VerificationStatus vStatus = (skippedCount > 0) ? VerificationStatus.PARTIAL : VerificationStatus.VERIFIED;
+        String vReport = "Verification Status: " + vStatus.name()
+                + ". Reopened saved CSV file and verified row/column structure and removal of "
+                + appliedCount + " cell redaction(s)."
+                + (skippedCount > 0 ? " (" + skippedCount + " candidate(s) skipped.) " : " ")
+                + RedactionResult.VERIFICATION_DISCLAIMER;
+        List<String> vWarnings = (skippedCount > 0)
+                ? List.of(skippedCount + " candidate(s) were skipped by user selection.")
+                : List.of();
+
         return new RedactionResult(
                 true,
                 DocumentFormat.CSV,
@@ -183,12 +198,19 @@ public final class CsvDocumentHandler implements DocumentHandler {
                 savedPath,
                 sourceHash,
                 outputHash,
-                candidates.size(),
-                allApplied.size(),
+                totalCandidates,
+                selectedCount,
+                appliedCount,
+                skippedCount,
+                0,
                 allApplied,
+                vStatus,
+                vReport,
+                vWarnings,
                 Instant.now(),
-                "Successfully applied " + allApplied.size()
-                        + " user-approved cell redaction(s) across " + redactedRecords.size() + " CSV row(s).");
+                "Successfully applied " + appliedCount
+                        + " user-approved cell redaction(s) across " + redactedRecords.size()
+                        + " CSV row(s) (" + skippedCount + " skipped). Verification: " + vStatus.name() + ".");
     }
 
     /**

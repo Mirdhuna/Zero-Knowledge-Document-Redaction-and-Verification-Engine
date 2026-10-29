@@ -140,6 +140,12 @@ public final class AuditService {
         scrubbed = scrubbed.replaceAll("[A-Za-z0-9._%+\\-]+@[A-Za-z0-9.\\-]+\\.[A-Za-z]{2,}", "[SCRUBBED_EMAIL]");
         // Scrub SSN-like pattern
         scrubbed = scrubbed.replaceAll("\\b\\d{3}-\\d{2}-\\d{4}\\b", "[SCRUBBED_ID]");
+        // Scrub PAN-like pattern
+        scrubbed = scrubbed.replaceAll("\\b[A-Z]{3}[ABCFGHLJPT][A-Z]\\d{4}[A-Z]\\b", "[SCRUBBED_PAN]");
+        // Scrub IFSC-like pattern
+        scrubbed = scrubbed.replaceAll("\\b[A-Z]{4}0[A-Z0-9]{6}\\b", "[SCRUBBED_IFSC]");
+        // Scrub grouped 12-16 digit sequences (Aadhaar / payment cards) while preserving 64-char hex SHA-256 digests
+        scrubbed = scrubbed.replaceAll("(?<![0-9a-fA-F])(?:\\d{4}[ -]){2,3}\\d{4}(?![0-9a-fA-F])", "[SCRUBBED_NUMBER]");
         return scrubbed;
     }
 }

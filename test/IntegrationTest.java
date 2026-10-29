@@ -5,13 +5,19 @@ import com.zeroknowledge.backend.VerificationService;
 import com.zeroknowledge.crypto.KeyManager;
 import com.zeroknowledge.crypto.SignatureService;
 import com.zeroknowledge.document.DocumentFormat;
+import com.zeroknowledge.document.LocalBitmapOcrEngine;
+import com.zeroknowledge.document.PdfDocumentHandler;
+import com.zeroknowledge.document.SyntheticPdfFactory;
+import com.zeroknowledge.document.SyntheticPdfFactory.SyntheticPageSpec;
 import com.zeroknowledge.frontend.BackendContext;
-import com.zeroknowledge.model.DocumentMetadata;
+import com.zeroknowledge.model.DocumentScanReport;
 import com.zeroknowledge.model.RedactionMatch;
 import com.zeroknowledge.model.RedactionResult;
+import com.zeroknowledge.model.RedactionResult.VerificationStatus;
 import com.zeroknowledge.model.VerificationResult;
 
-import java.io.File;
+import java.awt.Color;
+import java.awt.image.BufferedImage;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.KeyPair;
@@ -89,8 +95,12 @@ public class IntegrationTest {
             Path sigFile = context.getDocumentService().getFileStorageService().resolveDefaultSignaturePath(redactedFile);
             sigService.signAndSaveDetached(redactedFile, kp.getPrivate(), kp.getPublic(), sigFile);
 
-            if (redResult.isSuccess() && Files.exists(redactedFile) && Files.exists(sigFile)) {
-                System.out.println("PASSED (Applied " + redResult.getApprovedMatchesApplied() + " redactions)");
+            if (redResult.isSuccess()
+                    && redResult.getVerificationStatus() == VerificationStatus.VERIFIED
+                    && Files.exists(redactedFile)
+                    && Files.exists(sigFile)) {
+                System.out.println("PASSED (Applied " + redResult.getApprovedMatchesApplied()
+                        + " redactions, verification=" + redResult.getVerificationStatus() + ")");
                 passed++;
             } else {
                 System.out.println("FAILED");
@@ -122,30 +132,64 @@ public class IntegrationTest {
                 failed++;
             }
 
-            // Test 7: PDF Capability & Redaction Support Check
-            System.out.print("[TEST 7] PDF Content Stream Scan & Redaction Check... ");
+            // Test 7: PDF Content Stream Scan, Coordinate Mapping, Permanent Excision & Independent Verification
+            System.out.print("[TEST 7] PDF Content Stream Scan, Permanent Redaction & Verification... ");
             Path samplePdf = Path.of("samples/sample_contract.pdf");
             if (!Files.exists(samplePdf)) {
                 samplePdf = Path.of("../samples/sample_contract.pdf");
             }
             DocumentFormat fmt = docService.detectFormat(samplePdf);
             boolean redactionSupported = fmt.isRedactionSupported();
-            List<RedactionMatch> pdfMatches = docService.scanDocument(samplePdf);
+            DocumentScanReport scanReport = docService.scanDocumentWithReport(samplePdf);
+            List<RedactionMatch> pdfMatches = scanReport.getMatches();
             boolean hasMatches = !pdfMatches.isEmpty();
             List<RedactionMatch> approved = new ArrayList<>();
             for (RedactionMatch m : pdfMatches) {
                 approved.add(m.withSelection(true));
             }
             RedactionResult redRes = docService.applyApprovedRedactions(samplePdf, approved);
-            boolean redactOk = redRes.isSuccess() && redRes.getApprovedMatchesApplied() > 0;
+            boolean redactOk = redRes.isSuccess()
+                    && redRes.getApprovedMatchesApplied() > 0
+                    && redRes.getVerificationStatus() == VerificationStatus.VERIFIED;
             if (redRes.isSuccess()) {
                 Files.deleteIfExists(redRes.getOutputPath());
             }
             if (fmt == DocumentFormat.PDF && redactionSupported && hasMatches && redactOk) {
-                System.out.println("PASSED (PDF scan and content stream redaction operational: " + pdfMatches.size() + " matches)");
+                System.out.println("PASSED (PDF scan, coordinate mapping, permanent redaction & verification operational: "
+                        + pdfMatches.size() + " matches, status=" + redRes.getVerificationStatus() + ")");
                 passed++;
             } else {
-                System.out.println("FAILED (redactionSupported=" + redactionSupported + ", matches=" + pdfMatches.size() + ", redactOk=" + redactOk + ")");
+                System.out.println("FAILED (redactionSupported=" + redactionSupported
+                        + ", matches=" + pdfMatches.size() + ", redactOk=" + redactOk + ")");
+                failed++;
+            }
+
+            // Test 8: Scanned Image PDF OCR & Permanent Image Pixel Redaction via BackendContext
+            System.out.print("[TEST 8] Scanned PDF Local OCR & Permanent Image Pixel Redaction... ");
+            PdfDocumentHandler pdfHandler = context.getRedactionService().getPdfDocumentHandler();
+            pdfHandler.setOcrEngine(new LocalBitmapOcrEngine());
+            Path tempScannedPdf = Files.createTempFile("scanned_integration_", ".pdf");
+            BufferedImage scanImg = SyntheticPdfFactory.createSyntheticScannedPageImage(
+                    List.of("Email: scan.integration@example.org", "PAN: ABCPD1234F"),
+                    800, 400, Color.WHITE, Color.BLACK);
+            SyntheticPdfFactory.writeSyntheticPdf(tempScannedPdf, List.of(SyntheticPageSpec.scannedImagePage(scanImg, 0)));
+
+            DocumentScanReport ocrReport = docService.scanDocumentWithReport(tempScannedPdf);
+            List<RedactionMatch> ocrApproved = ocrReport.getMatches().stream().map(m -> m.withSelection(true)).toList();
+            RedactionResult ocrRedRes = docService.applyApprovedRedactions(tempScannedPdf, ocrApproved);
+            boolean ocrOk = ocrRedRes.isSuccess()
+                    && ocrRedRes.getApprovedMatchesApplied() >= 2
+                    && ocrRedRes.getVerificationStatus() == VerificationStatus.VERIFIED;
+            Files.deleteIfExists(tempScannedPdf);
+            if (ocrRedRes.getOutputPath() != null) {
+                Files.deleteIfExists(ocrRedRes.getOutputPath());
+            }
+            if (ocrOk) {
+                System.out.println("PASSED (OCR detected & permanently blackened " + ocrRedRes.getApprovedMatchesApplied()
+                        + " image regions, verification=" + ocrRedRes.getVerificationStatus() + ")");
+                passed++;
+            } else {
+                System.out.println("FAILED");
                 failed++;
             }
 

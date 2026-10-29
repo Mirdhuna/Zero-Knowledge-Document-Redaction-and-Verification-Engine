@@ -8,6 +8,8 @@ import com.zeroknowledge.backend.VerificationService;
 import com.zeroknowledge.crypto.HashService;
 import com.zeroknowledge.crypto.KeyManager;
 import com.zeroknowledge.crypto.SignatureService;
+import com.zeroknowledge.document.PdfDocumentHandler;
+import com.zeroknowledge.document.TesseractOcrEngine;
 import com.zeroknowledge.storage.ApplicationConfig;
 import com.zeroknowledge.storage.AuditService;
 import com.zeroknowledge.storage.FileStorageService;
@@ -24,13 +26,14 @@ import java.util.Map;
  */
 public class BackendContext {
 
-    private final ApplicationConfig applicationConfig;
+    private ApplicationConfig applicationConfig;
     private final FileStorageService fileStorageService;
     private final HashService hashService;
     private final KeyManager keyManager;
     private final SignatureService signatureService;
     private final AuditService auditService;
     private final AccessControlService accessControlService;
+    private final RedactionService redactionService;
     private final DocumentService documentService;
     private final VerificationService verificationService;
 
@@ -49,8 +52,8 @@ public class BackendContext {
         this.keyManager = new KeyManager(hashService);
         this.signatureService = new SignatureService(hashService, keyManager);
 
-        RedactionService redactionService = new RedactionService(
-                fileStorageService, hashService, accessControlService, auditService);
+        this.redactionService = new RedactionService(
+                fileStorageService, hashService, accessControlService, auditService, applicationConfig);
 
         this.documentService = new DocumentService(
                 fileStorageService,
@@ -78,8 +81,29 @@ public class BackendContext {
         }
     }
 
-    public ApplicationConfig getApplicationConfig() {
+    public synchronized ApplicationConfig getApplicationConfig() {
         return applicationConfig;
+    }
+
+    /**
+     * Updates runtime OCR settings and refreshes the active {@link PdfDocumentHandler} OCR engine.
+     */
+    public synchronized void updateOcrSettings(
+            String tesseractExecutablePath,
+            Path tessdataDirectory,
+            String ocrLanguage,
+            int ocrRenderDpi,
+            double minOcrConfidence) {
+        this.applicationConfig = this.applicationConfig.withOcrSettings(
+                tesseractExecutablePath,
+                tessdataDirectory != null ? tessdataDirectory.toString() : "",
+                ocrLanguage,
+                ocrRenderDpi,
+                minOcrConfidence);
+        PdfDocumentHandler pdfHandler = redactionService.getPdfDocumentHandler();
+        if (pdfHandler != null) {
+            pdfHandler.setOcrEngine(new TesseractOcrEngine(this.applicationConfig));
+        }
     }
 
     public FileStorageService getFileStorageService() {
@@ -104,6 +128,10 @@ public class BackendContext {
 
     public AccessControlService getAccessControlService() {
         return accessControlService;
+    }
+
+    public RedactionService getRedactionService() {
+        return redactionService;
     }
 
     public DocumentService getDocumentService() {
