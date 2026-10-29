@@ -1,0 +1,9 @@
+{
+    "java.project.sourcePaths": [
+        "src",
+        "core",
+        "test"
+    ],
+    "java.project.outputPath": "out",
+    "java.configuration.updateBuildConfiguration": "automatic"
+}

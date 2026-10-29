@@ -1,0 +1,26 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "java",
+            "name": "Launch Desktop App (MainFrame)",
+            "request": "launch",
+            "mainClass": "com.zeroknowledge.frontend.MainFrame",
+            "projectName": "JAVA-Package"
+        },
+        {
+            "type": "java",
+            "name": "Run Backend Test Suite",
+            "request": "launch",
+            "mainClass": "com.zeroknowledge.app.Main",
+            "projectName": "JAVA-Package"
+        },
+        {
+            "type": "java",
+            "name": "Run Integration Test Suite",
+            "request": "launch",
+            "mainClass": "test.IntegrationTest",
+            "projectName": "JAVA-Package"
+        }
+    ]
+}
