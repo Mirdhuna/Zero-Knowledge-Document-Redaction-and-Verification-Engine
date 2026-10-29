@@ -3,6 +3,7 @@ package com.zeroknowledge.frontend;
 import com.zeroknowledge.model.OperationRecord;
 
 import javax.swing.*;
+import javax.swing.border.CompoundBorder;
 import javax.swing.border.EmptyBorder;
 import javax.swing.table.DefaultTableModel;
 import java.awt.*;
@@ -89,7 +90,45 @@ public class DashboardPanel extends JPanel {
         welcomeCard.add(textGroup, BorderLayout.CENTER);
         welcomeCard.add(actionBtnGroup, BorderLayout.EAST);
         topContainer.add(welcomeCard);
-        topContainer.add(Box.createVerticalStrut(16));
+        topContainer.add(Box.createVerticalStrut(14));
+
+        // User-Friendly Getting Started Walkthrough Card
+        JPanel guideCard = ThemeManager.createCardPanel();
+        guideCard.setLayout(new BorderLayout(0, 10));
+
+        JPanel guideHeader = new JPanel(new BorderLayout());
+        guideHeader.setOpaque(false);
+        JLabel guideTitle = new JLabel("Quick Start: The 3-Step Zero-Knowledge Workflow");
+        guideTitle.setFont(ThemeManager.FONT_HEADER);
+        guideTitle.setForeground(ThemeManager.TEXT_PRIMARY);
+
+        JLabel guideBadge = ThemeManager.createBadge("New User Guide", ThemeManager.SUCCESS_BG, ThemeManager.SUCCESS_GREEN);
+        guideHeader.add(guideTitle, BorderLayout.WEST);
+        guideHeader.add(guideBadge, BorderLayout.EAST);
+        guideCard.add(guideHeader, BorderLayout.NORTH);
+
+        JPanel stepsRow = new JPanel(new GridLayout(1, 3, 16, 0));
+        stepsRow.setOpaque(false);
+
+        stepsRow.add(createStepGuideBlock(
+                1,
+                "1. Redact Document",
+                "Select a PDF, TXT, or CSV file. The engine scans for PII and sensitive data, lets you choose what to mask, and saves a clean sanitized copy."
+        ));
+        stepsRow.add(createStepGuideBlock(
+                2,
+                "2. Detached Digital Sign",
+                "The engine signs the exact bytes of your sanitized document with SHA256withRSA, generating a companion .zksig signature file."
+        ));
+        stepsRow.add(createStepGuideBlock(
+                3,
+                "3. Verify Authenticity",
+                "Verifiers inspect the document and .zksig file against your public key to prove integrity without exposing redacted confidential content."
+        ));
+
+        guideCard.add(stepsRow, BorderLayout.CENTER);
+        topContainer.add(guideCard);
+        topContainer.add(Box.createVerticalStrut(14));
 
         // Metric Counter Cards (4 columns)
         JPanel statsGrid = new JPanel(new GridLayout(1, 4, 16, 0));
@@ -177,8 +216,8 @@ public class DashboardPanel extends JPanel {
         rightInfoCard.add(infoHeader);
         rightInfoCard.add(Box.createVerticalStrut(12));
 
-        rightInfoCard.add(createSecurityBullet("Strict Capability Boundaries",
-                "Text & CSV formats support deep byte-level redaction. PDF files reject redaction to avoid false visual overlay illusions."));
+        rightInfoCard.add(createSecurityBullet("Pure-JDK Content Redaction",
+                "PDF, TXT & CSV formats support deep byte-level sanitization. Compressed PDF streams are decompressed, redacted, and rebuilt with exact xref offsets."));
         rightInfoCard.add(Box.createVerticalStrut(10));
 
         rightInfoCard.add(createSecurityBullet("Deterministic SHA-256",
@@ -194,6 +233,29 @@ public class DashboardPanel extends JPanel {
 
         centerContainer.add(rightInfoCard, BorderLayout.EAST);
         add(centerContainer, BorderLayout.CENTER);
+    }
+
+    private JPanel createStepGuideBlock(int step, String title, String description) {
+        JPanel p = new JPanel();
+        p.setLayout(new BoxLayout(p, BoxLayout.Y_AXIS));
+        p.setOpaque(false);
+        p.setBorder(new CompoundBorder(
+                BorderFactory.createLineBorder(ThemeManager.CARD_BORDER, 1, true),
+                new EmptyBorder(12, 14, 12, 14)
+        ));
+
+        JLabel titleLbl = new JLabel(title);
+        titleLbl.setFont(ThemeManager.FONT_SUBHEADER);
+        titleLbl.setForeground(ThemeManager.PRIMARY_BLUE);
+
+        JLabel descLbl = new JLabel("<html><body style='width: 200px; color: #334155; line-height: 1.4;'>"
+                + description + "</body></html>");
+        descLbl.setFont(ThemeManager.FONT_SMALL);
+
+        p.add(titleLbl);
+        p.add(Box.createVerticalStrut(4));
+        p.add(descLbl);
+        return p;
     }
 
     private JPanel createMetricCard(String title, JLabel valueLabel, String subtext, Color accent) {

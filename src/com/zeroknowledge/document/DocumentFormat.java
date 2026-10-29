@@ -28,13 +28,11 @@ public enum DocumentFormat {
     PDF(
             "Portable Document Format",
             ".pdf",
-            false,
-            false,
             true,
             true,
-            "CAPABILITY BOUNDARY: Standard JDK 21 does not provide a safe PDF content stream parser/redactor. "
-                    + "Text detection and redaction are unsupported to prevent false security claims. "
-                    + "Whole-file SHA-256 hashing and detached RSA signature verification are supported."
+            true,
+            true,
+            "Pure-JDK content-stream decompression, sensitive entity detection, stream redaction, SHA-256 hashing, and RSA digital signatures."
     ),
     UNSUPPORTED(
             "Unsupported Format",

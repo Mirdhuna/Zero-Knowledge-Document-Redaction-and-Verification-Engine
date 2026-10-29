@@ -6,7 +6,9 @@ import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import java.awt.*;
 import java.io.File;
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.KeyPair;
 import java.security.PublicKey;
 import java.util.Map;
 import java.util.function.Consumer;
@@ -60,7 +62,17 @@ public class VerificationPanel extends JPanel {
 
         // Header
         contentContainer.add(createHeaderPanel());
-        contentContainer.add(Box.createVerticalStrut(16));
+        contentContainer.add(Box.createVerticalStrut(14));
+
+        // Educational Workflow Banner
+        contentContainer.add(ThemeManager.createBanner(
+                "<strong>How Cryptographic Verification Works:</strong> The engine recalculates a live streaming SHA-256 digest over the target document's exact bytes, and mathematically evaluates the detached RSA signature (<code>.zksig</code>) against the trusted public key identity. If even a single byte or space is altered, the signature is rejected.",
+                new Color(239, 246, 255),
+                new Color(191, 219, 254),
+                ThemeManager.PRIMARY_BLUE,
+                "🛡️"
+        ));
+        contentContainer.add(Box.createVerticalStrut(14));
 
         // Input Card
         contentContainer.add(createInputCard());
@@ -113,26 +125,54 @@ public class VerificationPanel extends JPanel {
         JPanel card = ThemeManager.createCardPanel();
         card.setLayout(new BorderLayout(0, 14));
 
-        JLabel cardTitle = new JLabel("Verification Inputs");
-        cardTitle.setFont(ThemeManager.FONT_HEADER);
-        cardTitle.setForeground(ThemeManager.TEXT_PRIMARY);
-        card.add(cardTitle, BorderLayout.NORTH);
+        JPanel stepHeader = ThemeManager.createStepHeader(
+                1,
+                "Target Document, Detached Signature & Public Key",
+                "Supply the three verification elements. Click an auto-fill button below to test with sample or recently redacted files."
+        );
+        card.add(stepHeader, BorderLayout.NORTH);
+
+        JPanel centerContainer = new JPanel();
+        centerContainer.setLayout(new BoxLayout(centerContainer, BoxLayout.Y_AXIS));
+        centerContainer.setOpaque(false);
+
+        // Quick auto-fill toolbar
+        JPanel quickBar = new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 4));
+        quickBar.setOpaque(false);
+
+        JLabel quickLbl = new JLabel("Quick Actions:");
+        quickLbl.setFont(ThemeManager.FONT_SMALL_BOLD);
+        quickLbl.setForeground(ThemeManager.TEXT_SECONDARY);
+        quickBar.add(quickLbl);
+
+        JButton autoFillRecentBtn = ThemeManager.createSecondaryButton("⚡ Auto-Fill Last Redacted Document");
+        autoFillRecentBtn.setToolTipText("Load the document and .zksig signature generated in your most recent redaction");
+        autoFillRecentBtn.addActionListener(e -> handleAutoFillRecent());
+
+        JButton loadSamplePairBtn = ThemeManager.createSecondaryButton("📄 Load Sample Contract Pair (.pdf)");
+        loadSamplePairBtn.setToolTipText("Load pre-configured sample contract PDF and detached signature");
+        loadSamplePairBtn.addActionListener(e -> handleLoadSamplePair());
+
+        quickBar.add(autoFillRecentBtn);
+        quickBar.add(loadSamplePairBtn);
+
+        centerContainer.add(quickBar);
+        centerContainer.add(Box.createVerticalStrut(10));
 
         JPanel form = new JPanel(new GridBagLayout());
         form.setOpaque(false);
         GridBagConstraints gbc = new GridBagConstraints();
         gbc.fill = GridBagConstraints.HORIZONTAL;
-        gbc.insets = new Insets(6, 4, 6, 4);
+        gbc.insets = new Insets(8, 6, 8, 6);
 
         // 1. Document file
         gbc.gridx = 0; gbc.gridy = 0; gbc.weightx = 0.0;
-        JLabel docLbl = new JLabel("Target Document:");
+        JLabel docLbl = new JLabel("Target Document File:");
         docLbl.setFont(ThemeManager.FONT_SMALL_BOLD);
         form.add(docLbl, gbc);
 
         gbc.gridx = 1; gbc.gridy = 0; gbc.weightx = 1.0;
-        docPathField = new JTextField();
-        docPathField.setFont(ThemeManager.FONT_REGULAR);
+        docPathField = ThemeManager.createTextField();
         form.add(docPathField, gbc);
 
         gbc.gridx = 2; gbc.gridy = 0; gbc.weightx = 0.0;
@@ -147,8 +187,7 @@ public class VerificationPanel extends JPanel {
         form.add(sigLbl, gbc);
 
         gbc.gridx = 1; gbc.gridy = 1; gbc.weightx = 1.0;
-        sigPathField = new JTextField();
-        sigPathField.setFont(ThemeManager.FONT_REGULAR);
+        sigPathField = ThemeManager.createTextField();
         form.add(sigPathField, gbc);
 
         gbc.gridx = 2; gbc.gridy = 1; gbc.weightx = 0.0;
@@ -158,13 +197,12 @@ public class VerificationPanel extends JPanel {
 
         // 3. Public Key selection
         gbc.gridx = 0; gbc.gridy = 2; gbc.weightx = 0.0;
-        JLabel keyLbl = new JLabel("Trusted Public Key:");
+        JLabel keyLbl = new JLabel("Trusted Verification Public Key:");
         keyLbl.setFont(ThemeManager.FONT_SMALL_BOLD);
         form.add(keyLbl, gbc);
 
         gbc.gridx = 1; gbc.gridy = 2; gbc.weightx = 1.0;
-        keySourceComboBox = new JComboBox<>();
-        keySourceComboBox.setFont(ThemeManager.FONT_SMALL);
+        keySourceComboBox = ThemeManager.createComboBox();
         refreshKeySources();
         keySourceComboBox.addActionListener(e -> handleKeySourceChange());
         form.add(keySourceComboBox, gbc);
@@ -181,8 +219,7 @@ public class VerificationPanel extends JPanel {
         form.add(customKeyLbl, gbc);
 
         gbc.gridx = 1; gbc.gridy = 3; gbc.weightx = 1.0;
-        customKeyPathField = new JTextField();
-        customKeyPathField.setFont(ThemeManager.FONT_REGULAR);
+        customKeyPathField = ThemeManager.createTextField();
         customKeyPathField.setEnabled(false);
         form.add(customKeyPathField, gbc);
 
@@ -192,7 +229,8 @@ public class VerificationPanel extends JPanel {
         browseCustomKeyBtn.addActionListener(e -> handleBrowseCustomKey());
         form.add(browseCustomKeyBtn, gbc);
 
-        card.add(form, BorderLayout.CENTER);
+        centerContainer.add(form);
+        card.add(centerContainer, BorderLayout.CENTER);
 
         JPanel bottomRow = new JPanel(new BorderLayout(10, 0));
         bottomRow.setOpaque(false);
@@ -202,12 +240,66 @@ public class VerificationPanel extends JPanel {
         progressBar.setVisible(false);
         bottomRow.add(progressBar, BorderLayout.CENTER);
 
-        verifyBtn = ThemeManager.createPrimaryButton("Verify Signature & Integrity");
+        verifyBtn = ThemeManager.createPrimaryButton("Verify Signature & Document Integrity →");
         verifyBtn.addActionListener(e -> handlePerformVerification());
         bottomRow.add(verifyBtn, BorderLayout.EAST);
 
         card.add(bottomRow, BorderLayout.SOUTH);
         return card;
+    }
+
+    private void handleAutoFillRecent() {
+        Path lastDoc = context.getLastRedactedDocumentPath();
+        Path lastSig = context.getLastSignaturePath();
+        if (lastDoc != null && Files.exists(lastDoc)) {
+            loadFilesForVerification(lastDoc, lastSig);
+        } else {
+            DialogManager.showInfo(this, "No Recent Redaction",
+                    "No redacted document found in the current session.\nPlease redact a document first or load a sample pair.");
+        }
+    }
+
+    private void handleLoadSamplePair() {
+        Path sampleDoc = Path.of("samples/sample_contract.pdf");
+        Path sampleSig = Path.of("samples/sample_contract.pdf.zksig");
+        if (!Files.exists(sampleDoc)) {
+            sampleDoc = Path.of("../samples/sample_contract.pdf");
+            sampleSig = Path.of("../samples/sample_contract.pdf.zksig");
+        }
+        if (Files.exists(sampleDoc)) {
+            if (!Files.exists(sampleSig)) {
+                try {
+                    KeyPair kp = context.getActiveKeyPair();
+                    if (kp != null) {
+                        context.getSignatureService().signAndSaveDetached(sampleDoc, kp.getPrivate(), kp.getPublic(), sampleSig);
+                    }
+                } catch (Exception ignored) {
+                }
+            }
+            if (Files.exists(sampleSig)) {
+                loadFilesForVerification(sampleDoc, sampleSig);
+                return;
+            }
+        }
+        DialogManager.showError(this, "Sample Error", "Sample verification pair could not be prepared from samples/ directory.");
+    }
+
+    public void loadFilesForVerification(Path documentPath, Path signaturePath) {
+        if (documentPath != null) {
+            this.documentFile = documentPath.toFile();
+            docPathField.setText(documentPath.toAbsolutePath().toString());
+        }
+        if (signaturePath != null) {
+            this.signatureFile = signaturePath.toFile();
+            sigPathField.setText(signaturePath.toAbsolutePath().toString());
+        } else if (documentPath != null) {
+            Path candidate = context.getDocumentService().getFileStorageService().resolveDefaultSignaturePath(documentPath);
+            if (Files.exists(candidate)) {
+                this.signatureFile = candidate.toFile();
+                sigPathField.setText(candidate.toAbsolutePath().toString());
+            }
+        }
+        refreshKeySources();
     }
 
     private JPanel createResultCard() {

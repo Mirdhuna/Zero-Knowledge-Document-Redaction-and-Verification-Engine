@@ -142,12 +142,45 @@ public class RedactionPanel extends JPanel {
 
     private JPanel createFileSelectionCard() {
         JPanel card = ThemeManager.createCardPanel();
-        card.setLayout(new BorderLayout(0, 12));
+        card.setLayout(new BorderLayout(0, 16));
 
-        JLabel stepLabel = new JLabel("STEP 1: Document Selection & Capability Verification");
-        stepLabel.setFont(ThemeManager.FONT_HEADER);
-        stepLabel.setForeground(ThemeManager.TEXT_PRIMARY);
-        card.add(stepLabel, BorderLayout.NORTH);
+        JPanel topHeader = ThemeManager.createStepHeader(
+                1,
+                "Document Selection & Capability Verification",
+                "Choose a local document or load a sample document below. The engine verifies file structure and calculates its streaming SHA-256 digest."
+        );
+        card.add(topHeader, BorderLayout.NORTH);
+
+        JPanel centerPanel = new JPanel();
+        centerPanel.setLayout(new BoxLayout(centerPanel, BoxLayout.Y_AXIS));
+        centerPanel.setOpaque(false);
+
+        // Quick practice file loader bar
+        JPanel sampleBar = new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 4));
+        sampleBar.setOpaque(false);
+        JLabel samplePrompt = new JLabel("Quick Practice Documents:");
+        samplePrompt.setFont(ThemeManager.FONT_SMALL_BOLD);
+        samplePrompt.setForeground(ThemeManager.TEXT_SECONDARY);
+        sampleBar.add(samplePrompt);
+
+        JButton loadPdfBtn = ThemeManager.createSecondaryButton("📄 Sample Contract (.pdf)");
+        loadPdfBtn.setToolTipText("Load pre-configured confidential contract with PII in PDF format");
+        loadPdfBtn.addActionListener(e -> loadSampleFile("samples/sample_contract.pdf"));
+
+        JButton loadTxtBtn = ThemeManager.createSecondaryButton("📝 Sample Agreement (.txt)");
+        loadTxtBtn.setToolTipText("Load pre-configured text document with sensitive credentials");
+        loadTxtBtn.addActionListener(e -> loadSampleFile("samples/sample_contract.txt"));
+
+        JButton loadCsvBtn = ThemeManager.createSecondaryButton("📊 Sample Users (.csv)");
+        loadCsvBtn.setToolTipText("Load pre-configured customer records table with PII");
+        loadCsvBtn.addActionListener(e -> loadSampleFile("samples/sample_users.csv"));
+
+        sampleBar.add(loadPdfBtn);
+        sampleBar.add(loadTxtBtn);
+        sampleBar.add(loadCsvBtn);
+
+        centerPanel.add(sampleBar);
+        centerPanel.add(Box.createVerticalStrut(10));
 
         JPanel grid = new JPanel(new GridLayout(2, 3, 14, 8));
         grid.setOpaque(false);
@@ -172,15 +205,16 @@ public class RedactionPanel extends JPanel {
         grid.add(createLabeledField("Engine Capability", capabilityStatusBadge));
         grid.add(createLabeledField("SHA-256 Digest", fileShaLabel));
 
-        card.add(grid, BorderLayout.CENTER);
+        centerPanel.add(grid);
+        card.add(centerPanel, BorderLayout.CENTER);
 
         JPanel btnRow = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 0));
         btnRow.setOpaque(false);
 
-        chooseFileBtn = ThemeManager.createSecondaryButton("Browse Document...");
+        chooseFileBtn = ThemeManager.createSecondaryButton("Browse Local Document...");
         chooseFileBtn.addActionListener(e -> handleBrowseDocument());
 
-        scanBtn = ThemeManager.createPrimaryButton("Scan Document");
+        scanBtn = ThemeManager.createPrimaryButton("Scan Document for Sensitive Data →");
         scanBtn.setEnabled(false);
         scanBtn.addActionListener(e -> handleScanDocument());
 
@@ -191,22 +225,33 @@ public class RedactionPanel extends JPanel {
         return card;
     }
 
+    private void loadSampleFile(String relativePath) {
+        File f = new File(relativePath);
+        if (f.exists()) {
+            setSelectedDocument(f);
+        } else {
+            DialogManager.showError(this, "Sample File Error", "Sample file not found at: " + f.getAbsolutePath());
+        }
+    }
+
     private JPanel createCandidatesCard() {
         JPanel card = ThemeManager.createCardPanel();
-        card.setLayout(new BorderLayout(0, 12));
+        card.setLayout(new BorderLayout(0, 14));
 
-        JPanel topRow = new JPanel(new BorderLayout());
+        JPanel topRow = new JPanel(new BorderLayout(10, 0));
         topRow.setOpaque(false);
 
-        JLabel stepLabel = new JLabel("STEPS 2 & 3: Sensitive Data Candidates");
-        stepLabel.setFont(ThemeManager.FONT_HEADER);
-        stepLabel.setForeground(ThemeManager.TEXT_PRIMARY);
+        JPanel stepHeader = ThemeManager.createStepHeader(
+                2,
+                "Sensitive Entity Candidates Review",
+                "Review detected PII, credentials, and confidential tokens below. Check the boxes for entities you wish to redact."
+        );
 
         candidateCountLabel = new JLabel("0 candidates detected");
-        candidateCountLabel.setFont(ThemeManager.FONT_REGULAR);
-        candidateCountLabel.setForeground(ThemeManager.TEXT_SECONDARY);
+        candidateCountLabel.setFont(ThemeManager.FONT_REGULAR_BOLD);
+        candidateCountLabel.setForeground(ThemeManager.PRIMARY_BLUE);
 
-        topRow.add(stepLabel, BorderLayout.WEST);
+        topRow.add(stepHeader, BorderLayout.CENTER);
         topRow.add(candidateCountLabel, BorderLayout.EAST);
         card.add(topRow, BorderLayout.NORTH);
 
@@ -229,9 +274,9 @@ public class RedactionPanel extends JPanel {
 
         candidateTable = new JTable(candidateTableModel);
         ThemeManager.styleTable(candidateTable);
-        candidateTable.getColumnModel().getColumn(0).setPreferredWidth(60);
+        candidateTable.getColumnModel().getColumn(0).setPreferredWidth(70);
         candidateTable.getColumnModel().getColumn(1).setPreferredWidth(140);
-        candidateTable.getColumnModel().getColumn(2).setPreferredWidth(180);
+        candidateTable.getColumnModel().getColumn(2).setPreferredWidth(190);
         candidateTable.getColumnModel().getColumn(3).setPreferredWidth(130);
         candidateTable.getColumnModel().getColumn(4).setPreferredWidth(250);
 
@@ -244,7 +289,7 @@ public class RedactionPanel extends JPanel {
         });
 
         JScrollPane tableScroll = new JScrollPane(candidateTable);
-        tableScroll.setPreferredSize(new Dimension(0, 180));
+        tableScroll.setPreferredSize(new Dimension(0, 200));
         tableScroll.setBorder(BorderFactory.createLineBorder(ThemeManager.CARD_BORDER));
         tableScroll.getViewport().setBackground(ThemeManager.CARD_BG);
 
@@ -257,11 +302,11 @@ public class RedactionPanel extends JPanel {
         JPanel bottomRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 0));
         bottomRow.setOpaque(false);
 
-        selectAllBtn = ThemeManager.createSecondaryButton("Select All");
+        selectAllBtn = ThemeManager.createSecondaryButton("✓ Select All Candidates");
         selectAllBtn.setEnabled(false);
         selectAllBtn.addActionListener(e -> setAllCandidatesSelected(true));
 
-        deselectAllBtn = ThemeManager.createSecondaryButton("Deselect All");
+        deselectAllBtn = ThemeManager.createSecondaryButton("✗ Deselect All");
         deselectAllBtn.setEnabled(false);
         deselectAllBtn.addActionListener(e -> setAllCandidatesSelected(false));
 
@@ -274,18 +319,20 @@ public class RedactionPanel extends JPanel {
 
     private JPanel createExecutionCard() {
         JPanel card = ThemeManager.createCardPanel();
-        card.setLayout(new BorderLayout(0, 12));
+        card.setLayout(new BorderLayout(0, 14));
 
-        JLabel stepLabel = new JLabel("STEP 4: Output Destination & Detached RSA Signing");
-        stepLabel.setFont(ThemeManager.FONT_HEADER);
-        stepLabel.setForeground(ThemeManager.TEXT_PRIMARY);
-        card.add(stepLabel, BorderLayout.NORTH);
+        JPanel stepHeader = ThemeManager.createStepHeader(
+                3,
+                "Sanitization Destination & Detached Digital Signing",
+                "Specify destination path (never overwrites original). Detached signing creates a cryptographic .zksig proof alongside your file."
+        );
+        card.add(stepHeader, BorderLayout.NORTH);
 
         JPanel form = new JPanel(new GridBagLayout());
         form.setOpaque(false);
         GridBagConstraints gbc = new GridBagConstraints();
         gbc.fill = GridBagConstraints.HORIZONTAL;
-        gbc.insets = new Insets(6, 4, 6, 4);
+        gbc.insets = new Insets(8, 6, 8, 6);
 
         // Output Path
         gbc.gridx = 0; gbc.gridy = 0; gbc.weightx = 0.0;
@@ -294,12 +341,11 @@ public class RedactionPanel extends JPanel {
         form.add(outLbl, gbc);
 
         gbc.gridx = 1; gbc.gridy = 0; gbc.weightx = 1.0;
-        outputPathField = new JTextField();
-        outputPathField.setFont(ThemeManager.FONT_REGULAR);
+        outputPathField = ThemeManager.createTextField();
         form.add(outputPathField, gbc);
 
         gbc.gridx = 2; gbc.gridy = 0; gbc.weightx = 0.0;
-        browseOutputBtn = ThemeManager.createSecondaryButton("Choose File...");
+        browseOutputBtn = ThemeManager.createSecondaryButton("Choose Location...");
         browseOutputBtn.addActionListener(e -> handleBrowseOutput());
         form.add(browseOutputBtn, gbc);
 
@@ -307,15 +353,16 @@ public class RedactionPanel extends JPanel {
         gbc.gridx = 0; gbc.gridy = 1; gbc.weightx = 0.0;
         signOutputCheckBox = new JCheckBox("Digitally Sign Sanitized Document (Detached .zksig)");
         signOutputCheckBox.setFont(ThemeManager.FONT_REGULAR_BOLD);
+        signOutputCheckBox.setForeground(ThemeManager.TEXT_PRIMARY);
         signOutputCheckBox.setOpaque(false);
+        signOutputCheckBox.setSelected(true); // Default to checked for standard security flow
         signOutputCheckBox.addActionListener(e -> keySelectorComboBox.setEnabled(signOutputCheckBox.isSelected()));
         form.add(signOutputCheckBox, gbc);
 
         gbc.gridx = 1; gbc.gridy = 1; gbc.weightx = 1.0;
-        keySelectorComboBox = new JComboBox<>();
-        keySelectorComboBox.setFont(ThemeManager.FONT_SMALL);
-        keySelectorComboBox.setEnabled(false);
+        keySelectorComboBox = ThemeManager.createComboBox();
         refreshKeySelector();
+        keySelectorComboBox.setEnabled(true);
         form.add(keySelectorComboBox, gbc);
 
         card.add(form, BorderLayout.CENTER);
@@ -323,7 +370,7 @@ public class RedactionPanel extends JPanel {
         JPanel actionRow = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 0));
         actionRow.setOpaque(false);
 
-        applyRedactionBtn = ThemeManager.createPrimaryButton("Confirm & Apply Redactions");
+        applyRedactionBtn = ThemeManager.createPrimaryButton("Confirm & Apply Approved Redactions →");
         applyRedactionBtn.setEnabled(false);
         applyRedactionBtn.addActionListener(e -> handleApplyRedaction());
 
@@ -335,14 +382,16 @@ public class RedactionPanel extends JPanel {
 
     private JPanel createResultCard() {
         JPanel card = ThemeManager.createCardPanel();
-        card.setLayout(new BorderLayout(0, 12));
+        card.setLayout(new BorderLayout(0, 14));
 
-        JLabel stepLabel = new JLabel("STEP 5: Redaction Execution Results");
-        stepLabel.setFont(ThemeManager.FONT_HEADER);
-        stepLabel.setForeground(ThemeManager.TEXT_PRIMARY);
-        card.add(stepLabel, BorderLayout.NORTH);
+        JPanel stepHeader = ThemeManager.createStepHeader(
+                4,
+                "Redaction Execution & Cryptographic Digest Summary",
+                "The sanitized document has been created and verified. The original file remains completely unaltered."
+        );
+        card.add(stepHeader, BorderLayout.NORTH);
 
-        JPanel infoGrid = new JPanel(new GridLayout(5, 1, 6, 6));
+        JPanel infoGrid = new JPanel(new GridLayout(5, 1, 8, 8));
         infoGrid.setOpaque(false);
 
         resultStatusLabel = new JLabel("Status: -");
@@ -367,6 +416,16 @@ public class RedactionPanel extends JPanel {
         infoGrid.add(resultSignatureLabel);
 
         card.add(infoGrid, BorderLayout.CENTER);
+
+        JPanel bottomRow = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 0));
+        bottomRow.setOpaque(false);
+
+        JButton verifyNowBtn = ThemeManager.createPrimaryButton("Proceed to Verification Workspace →");
+        verifyNowBtn.setToolTipText("Open the Verification workspace with this newly signed document pre-loaded");
+        verifyNowBtn.addActionListener(e -> navigationConsumer.accept(MainFrame.CARD_VERIFICATION));
+        bottomRow.add(verifyNowBtn);
+
+        card.add(bottomRow, BorderLayout.SOUTH);
         return card;
     }
 
@@ -399,14 +458,7 @@ public class RedactionPanel extends JPanel {
         fileSizeLabel.setText(file.length() < 1024 ? file.length() + " B" : (file.length() / 1024) + " KB");
         fileTypeLabel.setText(format.name());
 
-        if (format == DocumentFormat.PDF) {
-            capabilityStatusBadge.setText("Unsupported for Redaction (PDF)");
-            capabilityStatusBadge.setForeground(ThemeManager.DANGER_RED);
-            fileShaLabel.setText("-");
-            scanBtn.setEnabled(false);
-            DialogManager.showWarning(this, "PDF Capability Boundary",
-                    "Standard JDK 21 does not include a PDF parsing and stream-sanitizing engine. Text extraction & content redaction are unsupported. Visual overlays create a false sense of security while leaving underlying text intact.");
-        } else if (format.isRedactionSupported()) {
+        if (format.isRedactionSupported()) {
             capabilityStatusBadge.setText("Supported (" + format.name() + ")");
             capabilityStatusBadge.setForeground(ThemeManager.SUCCESS_GREEN);
             scanBtn.setEnabled(true);
@@ -419,12 +471,13 @@ public class RedactionPanel extends JPanel {
                 fileShaLabel.setText("Digest calculation error");
             }
 
-            // Derive safe non-overwriting destination
+            // Derive safe non-overwriting destination preserving original format extension
             try {
                 Path defaultOut = context.getDocumentService().getFileStorageService().resolveDefaultRedactedOutputPath(path);
                 outputPathField.setText(defaultOut.toAbsolutePath().toString());
             } catch (Exception ex) {
-                outputPathField.setText(path.toAbsolutePath().toString() + ".redacted.txt");
+                String ext = format == DocumentFormat.PDF ? ".pdf" : (format == DocumentFormat.CSV ? ".csv" : ".txt");
+                outputPathField.setText(path.toAbsolutePath().toString() + ".redacted" + ext);
             }
         } else {
             capabilityStatusBadge.setText("Unsupported Format");
@@ -432,7 +485,7 @@ public class RedactionPanel extends JPanel {
             fileShaLabel.setText("-");
             scanBtn.setEnabled(false);
             DialogManager.showError(this, "Unsupported Document Format",
-                    "The selected file format is not supported for redaction. Supported formats: .txt, .csv");
+                    "The selected file format is not supported for redaction. Supported formats: .pdf, .txt, .csv");
         }
 
         // Reset subsequent steps
@@ -609,6 +662,11 @@ public class RedactionPanel extends JPanel {
                 try {
                     RedactionResult result = get();
                     if (result.isSuccess()) {
+                        context.setLastRedactedDocumentPath(result.getOutputPath());
+                        if (signaturePathCreated != null) {
+                            context.setLastSignaturePath(signaturePathCreated);
+                        }
+
                         resultCard.setVisible(true);
                         resultStatusLabel.setText("Status: Redaction Succeeded");
                         resultStatusLabel.setForeground(ThemeManager.SUCCESS_GREEN);

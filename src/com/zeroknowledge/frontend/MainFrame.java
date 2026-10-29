@@ -336,10 +336,7 @@ public class MainFrame extends JFrame {
     }
 
     public static void main(String[] args) {
-        try {
-            UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName());
-        } catch (Exception ignored) {
-        }
+        ThemeManager.setupLookAndFeel();
 
         SwingUtilities.invokeLater(() -> {
             MainFrame frame = new MainFrame();

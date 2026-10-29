@@ -132,9 +132,11 @@ public class SettingsPanel extends JPanel {
         JLabel lbl = new JLabel("Active Security Role:");
         lbl.setFont(ThemeManager.FONT_SMALL_BOLD);
 
-        roleComboBox = new JComboBox<>(AccessControlService.Role.values());
+        roleComboBox = ThemeManager.createComboBox();
+        for (AccessControlService.Role r : AccessControlService.Role.values()) {
+            roleComboBox.addItem(r);
+        }
         roleComboBox.setSelectedItem(context.getAccessControlService().getActiveRole());
-        roleComboBox.setFont(ThemeManager.FONT_SMALL);
         roleComboBox.addActionListener(e -> {
             AccessControlService.Role r = (AccessControlService.Role) roleComboBox.getSelectedItem();
             if (r != null) {
@@ -143,7 +145,7 @@ public class SettingsPanel extends JPanel {
             }
         });
 
-        JLabel note = new JLabel("<html><span style='color: #64748B;'>Controls permission to generate keys, sign, and redact documents.</span></html>");
+        JLabel note = new JLabel("<html><span style='color: #475569;'>Controls permission to generate keys, sign, and redact documents.</span></html>");
         note.setFont(ThemeManager.FONT_SMALL);
 
         row.add(lbl);
@@ -173,10 +175,10 @@ public class SettingsPanel extends JPanel {
         for (com.zeroknowledge.backend.SensitiveDataDetector.DetectionRule r : rules) {
             JPanel p = new JPanel(new BorderLayout(10, 0));
             p.setOpaque(false);
-            p.setBorder(new EmptyBorder(3, 4, 3, 4));
+            p.setBorder(new EmptyBorder(4, 6, 4, 6));
 
             JLabel typeLbl = new JLabel("● " + r.getCandidateType() + " (" + r.getRuleId() + ")");
-            typeLbl.setFont(ThemeManager.FONT_SMALL_BOLD);
+            typeLbl.setFont(ThemeManager.FONT_REGULAR_BOLD);
             typeLbl.setForeground(ThemeManager.TEXT_PRIMARY);
 
             JLabel confLbl = new JLabel("Confidence: " + (int)(r.getConfidence() * 100) + "%  |  Token: " + r.getReplacementToken());
@@ -200,25 +202,25 @@ public class SettingsPanel extends JPanel {
         title.setFont(ThemeManager.FONT_HEADER);
         title.setForeground(ThemeManager.TEXT_PRIMARY);
         card.add(title);
-        card.add(Box.createVerticalStrut(12));
+        card.add(Box.createVerticalStrut(14));
 
         card.add(createConceptBlock(
-                "1. Document Redaction",
-                "Irreversible sanitization of identified sensitive character spans prior to document export. Underlying text bytes are completely replaced with replacement tokens. Visual overlays in PDFs are rejected by design because they leave underlying content extractable."
+                "1. Document Redaction (PDF, TXT & CSV)",
+                "Irreversible sanitization of identified sensitive character spans prior to document export. Underlying text bytes inside decompressed PDF streams, plain text, and CSV cells are completely substituted with replacement tokens, and xref tables are rebuilt with exact byte offsets."
         ));
-        card.add(Box.createVerticalStrut(10));
+        card.add(Box.createVerticalStrut(12));
 
         card.add(createConceptBlock(
                 "2. Streaming Cryptographic Hashing (SHA-256)",
                 "A one-way deterministic mathematical function that produces a 256-bit digest over the exact byte stream of a file. Any bit modification results in a completely different digest."
         ));
-        card.add(Box.createVerticalStrut(10));
+        card.add(Box.createVerticalStrut(12));
 
         card.add(createConceptBlock(
                 "3. Detached Digital Signatures (SHA256withRSA)",
                 "Signing computes a digital signature over the exact document bytes using a private key. The resulting .zksig file is stored alongside the document, allowing verification against a trusted public key without modifying the source."
         ));
-        card.add(Box.createVerticalStrut(10));
+        card.add(Box.createVerticalStrut(12));
 
         card.add(createConceptBlock(
                 "4. Honest Disclosure: Zero-Knowledge Distinction",
@@ -237,7 +239,7 @@ public class SettingsPanel extends JPanel {
         k.setForeground(ThemeManager.TEXT_SECONDARY);
 
         JLabel v = new JLabel(value);
-        v.setFont(ThemeManager.FONT_SMALL);
+        v.setFont(ThemeManager.FONT_REGULAR);
         v.setForeground(ThemeManager.TEXT_PRIMARY);
 
         p.add(k, BorderLayout.NORTH);
@@ -254,10 +256,10 @@ public class SettingsPanel extends JPanel {
         t.setFont(ThemeManager.FONT_SUBHEADER);
         t.setForeground(ThemeManager.PRIMARY_BLUE);
 
-        JLabel e = new JLabel("<html><body style='width: 600px; font-size: 10pt; color: #334155; line-height: 1.4;'>"
+        JLabel e = new JLabel("<html><body style='width: 640px; font-size: 11pt; color: #1E293B; line-height: 1.5;'>"
                 + explanation + "</body></html>");
         e.setFont(ThemeManager.FONT_REGULAR);
-        e.setBorder(new EmptyBorder(2, 6, 0, 0));
+        e.setBorder(new EmptyBorder(4, 6, 0, 0));
 
         p.add(t);
         p.add(e);

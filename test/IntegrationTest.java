@@ -16,6 +16,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.KeyPair;
 import java.security.PublicKey;
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -121,17 +122,30 @@ public class IntegrationTest {
                 failed++;
             }
 
-            // Test 7: PDF Capability Boundary Check
-            System.out.print("[TEST 7] PDF Capability Boundary Check... ");
-            Path dummyPdf = Files.createTempFile("sample", ".pdf");
-            DocumentFormat fmt = docService.detectFormat(dummyPdf);
+            // Test 7: PDF Capability & Redaction Support Check
+            System.out.print("[TEST 7] PDF Content Stream Scan & Redaction Check... ");
+            Path samplePdf = Path.of("samples/sample_contract.pdf");
+            if (!Files.exists(samplePdf)) {
+                samplePdf = Path.of("../samples/sample_contract.pdf");
+            }
+            DocumentFormat fmt = docService.detectFormat(samplePdf);
             boolean redactionSupported = fmt.isRedactionSupported();
-            Files.deleteIfExists(dummyPdf);
-            if (fmt == DocumentFormat.PDF && !redactionSupported) {
-                System.out.println("PASSED (Correctly rejects text redaction on PDF)");
+            List<RedactionMatch> pdfMatches = docService.scanDocument(samplePdf);
+            boolean hasMatches = !pdfMatches.isEmpty();
+            List<RedactionMatch> approved = new ArrayList<>();
+            for (RedactionMatch m : pdfMatches) {
+                approved.add(m.withSelection(true));
+            }
+            RedactionResult redRes = docService.applyApprovedRedactions(samplePdf, approved);
+            boolean redactOk = redRes.isSuccess() && redRes.getApprovedMatchesApplied() > 0;
+            if (redRes.isSuccess()) {
+                Files.deleteIfExists(redRes.getOutputPath());
+            }
+            if (fmt == DocumentFormat.PDF && redactionSupported && hasMatches && redactOk) {
+                System.out.println("PASSED (PDF scan and content stream redaction operational: " + pdfMatches.size() + " matches)");
                 passed++;
             } else {
-                System.out.println("FAILED");
+                System.out.println("FAILED (redactionSupported=" + redactionSupported + ", matches=" + pdfMatches.size() + ", redactOk=" + redactOk + ")");
                 failed++;
             }
 

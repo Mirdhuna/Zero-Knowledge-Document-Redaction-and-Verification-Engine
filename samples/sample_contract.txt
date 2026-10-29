@@ -14,7 +14,7 @@ Corporate Billing Card: 4111-2222-3333-4444
 Backup Corporate Card: 5500-0000-0000-9999
 
 Production Server Credentials:
-Master API Key: sec_token_1234567890abcdef12345678
+Account Identifier: ACCT-98765432
 Internal Gateway IP: 192.168.1.100
 
 All parties agree to preserve confidentiality and redact all sensitive identifiers before distribution.

@@ -27,6 +27,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.security.KeyPair;
 import java.security.PrivateKey;
 import java.security.PublicKey;
@@ -127,8 +128,8 @@ public final class Main {
             runTest("15. Audit-Log Privacy and Role-Based Access Control Enforcement",
                     () -> testAuditLogPrivacyAndAccessControl(tempRoot, config, documentService, accessControl, auditService));
 
-            runTest("16. PDF Capability Boundary (Rejects Unverified Redaction, Supports Whole-File Hash & Sign)",
-                    () -> testUnsupportedPdfRedactionAndSupportedFileCrypto(
+            runTest("16. PDF Capability (Text Stream Extraction, Content-Stream Redaction, Whole-File Hash & Sign)",
+                    () -> testPdfRedactionAndSupportedFileCrypto(
                             tempRoot, documentService, signatureService, verificationService, primaryKeyPair));
 
         } catch (Exception e) {
@@ -624,45 +625,48 @@ public final class Main {
         check(deniedRedaction, "DocumentService must enforce AccessControlService permissions");
     }
 
-    private static void testUnsupportedPdfRedactionAndSupportedFileCrypto(
+    private static void testPdfRedactionAndSupportedFileCrypto(
             Path tempRoot,
             DocumentService documentService,
             SignatureService signatureService,
             VerificationService verificationService,
             KeyPair keyPair) throws Exception {
+        Path pdfSource = Path.of("samples/sample_contract.pdf");
+        if (!Files.exists(pdfSource)) {
+            pdfSource = Path.of("../samples/sample_contract.pdf");
+        }
         Path pdfFile = tempRoot.resolve("sample.pdf");
-        // Write a minimal valid PDF header and body
-        String minimalPdf = "%PDF-1.7\n1 0 obj\n<< /Type /Catalog >>\nendobj\n%%EOF\n";
-        Files.writeString(pdfFile, minimalPdf, StandardCharsets.US_ASCII);
+        Files.copy(pdfSource, pdfFile, StandardCopyOption.REPLACE_EXISTING);
 
-        check(!documentService.isRedactionSupported(pdfFile),
-                "DocumentService must report that PDF redaction is unsupported under standard JDK constraints");
+        check(documentService.isRedactionSupported(pdfFile),
+                "DocumentService must report that PDF redaction is supported");
         check(documentService.isVerificationSupported(pdfFile),
                 "DocumentService must report that whole-file PDF verification is supported");
 
-        // 1. Scanning PDF for text redaction must throw DocumentProcessingException with clear boundary message
-        boolean scanRejected = false;
-        try {
-            documentService.scanDocument(pdfFile);
-        } catch (DocumentProcessingException expected) {
-            scanRejected = expected.getMessage().contains("UNSUPPORTED OPERATION");
-        }
-        check(scanRejected, "Scanning a PDF must throw DocumentProcessingException explaining the capability boundary");
+        // 1. Scanning PDF for sensitive text tokens
+        List<RedactionMatch> matches = documentService.scanDocument(pdfFile);
+        check(!matches.isEmpty(), "Scanning a PDF should detect sensitive data candidates");
 
-        // 2. Redacting PDF must return RedactionResult with success == false (never falsely claiming success)
-        RedactionResult pdfRedactResult = documentService.applyApprovedRedactions(pdfFile, List.of());
-        check(!pdfRedactResult.isSuccess(), "PDF redaction must NEVER report success == true");
+        // 2. Selectively redact matches
+        List<RedactionMatch> userDecision = new ArrayList<>();
+        for (int i = 0; i < matches.size(); i++) {
+            userDecision.add(matches.get(i).withSelection(i % 2 == 0));
+        }
+        RedactionResult pdfRedactResult = documentService.applyApprovedRedactions(pdfFile, userDecision);
+        check(pdfRedactResult.isSuccess(), "PDF redaction should succeed");
         check(pdfRedactResult.getFormat() == DocumentFormat.PDF, "Expected PDF format in result");
+        check(Files.exists(pdfRedactResult.getOutputPath()), "Redacted PDF file must exist");
+        check(Files.size(pdfRedactResult.getOutputPath()) > 0, "Redacted PDF file must not be empty");
 
         // 3. Whole-file metadata inspection, SHA-256 hashing, signing, and verification on PDF ARE supported
-        DocumentMetadata meta = documentService.inspectDocument(pdfFile);
+        DocumentMetadata meta = documentService.inspectDocument(pdfRedactResult.getOutputPath());
         check(meta.getFormat() == DocumentFormat.PDF && meta.getSha256Digest().length() == 64,
                 "Whole-file PDF metadata and SHA-256 inspection should succeed");
 
         Path pdfSig = tempRoot.resolve("sample.pdf.zksig");
-        signatureService.signAndSaveDetached(pdfFile, keyPair.getPrivate(), keyPair.getPublic(), pdfSig);
+        signatureService.signAndSaveDetached(pdfRedactResult.getOutputPath(), keyPair.getPrivate(), keyPair.getPublic(), pdfSig);
 
-        VerificationResult pdfVerify = verificationService.verifyDocument(pdfFile, pdfSig, keyPair.getPublic());
+        VerificationResult pdfVerify = verificationService.verifyDocument(pdfRedactResult.getOutputPath(), pdfSig, keyPair.getPublic());
         check(pdfVerify.isVerified() && pdfVerify.getStatus() == Status.VALID_SIGNATURE,
                 "Whole-file detached signature verification on PDF should succeed");
     }

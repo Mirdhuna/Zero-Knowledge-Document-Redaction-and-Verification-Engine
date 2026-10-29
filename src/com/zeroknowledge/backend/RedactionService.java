@@ -42,7 +42,7 @@ public final class RedactionService {
         this.handlers = new EnumMap<>(DocumentFormat.class);
         this.handlers.put(DocumentFormat.TXT, new TextDocumentHandler(fileStorageService, hashService));
         this.handlers.put(DocumentFormat.CSV, new CsvDocumentHandler(fileStorageService, hashService));
-        this.handlers.put(DocumentFormat.PDF, new PdfDocumentHandler(fileStorageService));
+        this.handlers.put(DocumentFormat.PDF, new PdfDocumentHandler(fileStorageService, hashService));
     }
 
     /**
@@ -82,9 +82,12 @@ public final class RedactionService {
         DocumentHandler handler = handlers.get(format);
         try {
             RedactionResult result = handler.applyRedactions(sourcePath, outputPath, approvedMatches);
-            if (format == DocumentFormat.PDF || !result.isSuccess()) {
+            if (!result.isSuccess()) {
+                OperationType opType = (format == DocumentFormat.PDF)
+                        ? OperationType.UNSUPPORTED_PDF_OPERATION
+                        : OperationType.DOCUMENT_REDACT;
                 auditService.record(
-                        OperationType.UNSUPPORTED_PDF_OPERATION,
+                        opType,
                         fileName,
                         false,
                         result.getSummaryMessage());

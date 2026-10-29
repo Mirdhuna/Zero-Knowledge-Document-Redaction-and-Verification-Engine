@@ -12,6 +12,7 @@ import com.zeroknowledge.storage.ApplicationConfig;
 import com.zeroknowledge.storage.AuditService;
 import com.zeroknowledge.storage.FileStorageService;
 
+import java.nio.file.Path;
 import java.security.KeyPair;
 import java.security.PublicKey;
 import java.util.LinkedHashMap;
@@ -141,6 +142,25 @@ public class BackendContext {
 
     public synchronized String getActiveKeyAlias() {
         return activeKeyAlias;
+    }
+
+    private Path lastRedactedDocumentPath;
+    private Path lastSignaturePath;
+
+    public synchronized Path getLastRedactedDocumentPath() {
+        return lastRedactedDocumentPath;
+    }
+
+    public synchronized void setLastRedactedDocumentPath(Path lastRedactedDocumentPath) {
+        this.lastRedactedDocumentPath = lastRedactedDocumentPath;
+    }
+
+    public synchronized Path getLastSignaturePath() {
+        return lastSignaturePath;
+    }
+
+    public synchronized void setLastSignaturePath(Path lastSignaturePath) {
+        this.lastSignaturePath = lastSignaturePath;
     }
 
     public synchronized void setActiveKeyAlias(String activeKeyAlias) {

@@ -140,8 +140,8 @@ public class KeyManagementPanel extends JPanel {
         form.add(aliasLbl, gbc);
 
         gbc.gridx = 1; gbc.gridy = 0; gbc.weightx = 1.0;
-        keyAliasField = new JTextField("signing-key-" + (System.currentTimeMillis() % 1000));
-        keyAliasField.setFont(ThemeManager.FONT_REGULAR);
+        keyAliasField = ThemeManager.createTextField();
+        keyAliasField.setText("signing-key-" + (System.currentTimeMillis() % 1000));
         form.add(keyAliasField, gbc);
 
         // Key Size
@@ -151,14 +151,16 @@ public class KeyManagementPanel extends JPanel {
         form.add(sizeLbl, gbc);
 
         gbc.gridx = 3; gbc.gridy = 0; gbc.weightx = 0.0;
-        keySizeComboBox = new JComboBox<>(new Integer[]{2048, 3072, 4096});
+        keySizeComboBox = ThemeManager.createComboBox();
+        keySizeComboBox.addItem(2048);
+        keySizeComboBox.addItem(3072);
+        keySizeComboBox.addItem(4096);
         keySizeComboBox.setSelectedItem(3072);
-        keySizeComboBox.setFont(ThemeManager.FONT_SMALL);
         form.add(keySizeComboBox, gbc);
 
         // Generate Button
         gbc.gridx = 4; gbc.gridy = 0; gbc.weightx = 0.0;
-        generateKeyBtn = ThemeManager.createPrimaryButton("Generate RSA Key");
+        generateKeyBtn = ThemeManager.createPrimaryButton("Generate RSA Key Pair");
         generateKeyBtn.addActionListener(e -> handleGenerateKey());
         form.add(generateKeyBtn, gbc);
 
@@ -247,9 +249,11 @@ public class KeyManagementPanel extends JPanel {
 
         publicKeyPreviewArea = new JTextArea();
         publicKeyPreviewArea.setFont(ThemeManager.FONT_MONO);
+        publicKeyPreviewArea.setForeground(ThemeManager.TEXT_PRIMARY);
+        publicKeyPreviewArea.setBackground(Color.WHITE);
+        publicKeyPreviewArea.setCaretColor(ThemeManager.TEXT_PRIMARY);
         publicKeyPreviewArea.setEditable(false);
-        publicKeyPreviewArea.setBackground(new Color(248, 250, 252));
-        publicKeyPreviewArea.setBorder(new EmptyBorder(8, 8, 8, 8));
+        publicKeyPreviewArea.setBorder(new EmptyBorder(10, 12, 10, 12));
 
         JScrollPane pemScroll = new JScrollPane(publicKeyPreviewArea);
         pemScroll.setBorder(BorderFactory.createLineBorder(ThemeManager.CARD_BORDER));

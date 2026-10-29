@@ -98,7 +98,8 @@ public class AuditPanel extends JPanel {
 
         JLabel opLbl = new JLabel("Operation:");
         opLbl.setFont(ThemeManager.FONT_SMALL_BOLD);
-        operationFilterCombo = new JComboBox<>(new String[]{
+        operationFilterCombo = ThemeManager.createComboBox();
+        String[] ops = new String[]{
                 "All Operations",
                 "DOCUMENT_SCAN",
                 "DOCUMENT_REDACT",
@@ -110,16 +111,16 @@ public class AuditPanel extends JPanel {
                 "SIGNATURE_VERIFY",
                 "ACCESS_CHECK",
                 "UNSUPPORTED_PDF_OPERATION"
-        });
-        operationFilterCombo.setFont(ThemeManager.FONT_SMALL);
+        };
+        for (String op : ops) operationFilterCombo.addItem(op);
         operationFilterCombo.addActionListener(e -> refreshAuditTable());
 
         JLabel stLbl = new JLabel("Status:");
         stLbl.setFont(ThemeManager.FONT_SMALL_BOLD);
-        statusFilterCombo = new JComboBox<>(new String[]{
-                "All Statuses", "SUCCESS", "FAILED"
-        });
-        statusFilterCombo.setFont(ThemeManager.FONT_SMALL);
+        statusFilterCombo = ThemeManager.createComboBox();
+        statusFilterCombo.addItem("All Statuses");
+        statusFilterCombo.addItem("SUCCESS");
+        statusFilterCombo.addItem("FAILED");
         statusFilterCombo.addActionListener(e -> refreshAuditTable());
 
         JButton refreshBtn = ThemeManager.createSecondaryButton("Refresh");
